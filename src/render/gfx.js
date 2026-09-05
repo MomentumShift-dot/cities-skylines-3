@@ -101,13 +101,20 @@ export function seededRng(seed) {
 //  색상
 // ---------------------------------------------------------------------------
 const hexCache = new Map();
+/** '#rgb' / '#rrggbb' / 'rgb(r,g,b)' 를 모두 받는다 */
 export function parseHex(hex) {
   let v = hexCache.get(hex);
   if (v) return v;
-  let h = hex.replace('#', '');
-  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-  const n = parseInt(h, 16);
-  v = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  if (hex[0] === 'r') {                        // rgb(...) / rgba(...)
+    const m = hex.match(/-?\d+(\.\d+)?/g);
+    v = m ? [+m[0] | 0, +m[1] | 0, +m[2] | 0] : [128, 128, 128];
+  } else {
+    let h = hex.replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    const n = parseInt(h, 16);
+    v = Number.isFinite(n) ? [(n >> 16) & 255, (n >> 8) & 255, n & 255] : [128, 128, 128];
+  }
+  if (hexCache.size > 4000) hexCache.clear();
   hexCache.set(hex, v);
   return v;
 }

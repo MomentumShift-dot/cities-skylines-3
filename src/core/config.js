@@ -54,14 +54,14 @@ export const ZONE_DEF = [
     color: '#37b04f', tint: 'rgba(55,176,79,.40)', cost: 9, unlock: 4,
     cap: [24, 32, 42, 54, 68], height: [34, 44, 56, 68, 82], lvReq: [0, 32, 48, 64, 80],
     palette: ['#cdc3b4', '#dcd3c2', '#c4bcae', '#d8cfbe', '#c9c2b6'],
-    roofs: ['#7d6a5c', '#6f6154', '#8a6a5a', '#6a6258', '#5f5a52'],
+    roofs: ['#8d7a6c', '#7f7164', '#9a7a6a', '#7a7268', '#6f6a62'],
   },
   {
     id: 3, key: 'RES_HIGH', name: '고밀도 주거', short: '고주', cat: 'res', size: 2,
     color: '#1f9440', tint: 'rgba(31,148,64,.40)', cost: 12, unlock: 9,
     cap: [54, 76, 102, 134, 172], height: [58, 82, 110, 144, 184], lvReq: [0, 40, 56, 70, 84],
     palette: ['#b9c2c6', '#c8d0d4', '#aeb8be', '#c2cbd0', '#b3bcc2'],
-    roofs: ['#6a7278', '#5e666c', '#737b81', '#585f65', '#666e74'],
+    roofs: ['#7c848b', '#727a80', '#868e94', '#6b7278', '#798187'],
   },
   {
     id: 4, key: 'COM_LOW', name: '저밀도 상업', short: '저상', cat: 'com', size: 1,
@@ -77,7 +77,7 @@ export const ZONE_DEF = [
     cap: [26, 36, 48, 62, 80], height: [44, 60, 78, 98, 124], lvReq: [0, 40, 56, 70, 84],
     edu: [0.28, 0.45, 0.27],
     palette: ['#9fc0d8', '#b6cfe2', '#8fb3cd', '#a9c6dc', '#96b8d2'],
-    roofs: ['#4f6f88', '#5b7b93', '#456379', '#547289', '#4a6a80'],
+    roofs: ['#5f7f98', '#6b8ba3', '#557389', '#648299', '#5a7a90'],
   },
   {
     id: 6, key: 'IND', name: '산업', short: '산업', cat: 'ind', size: 2,
@@ -93,7 +93,7 @@ export const ZONE_DEF = [
     cap: [24, 34, 46, 60, 76], height: [48, 66, 86, 110, 138], lvReq: [0, 42, 58, 72, 86],
     edu: [0.05, 0.30, 0.65],
     palette: ['#8fa8bd', '#9db6c9', '#7f99ae', '#93adc2', '#88a2b7'],
-    roofs: ['#43596d', '#4d6377', '#3b5163', '#495e71', '#405565'],
+    roofs: ['#556b7f', '#5f7589', '#4d6375', '#5b7083', '#526777'],
   },
 ];
 

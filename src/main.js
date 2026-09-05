@@ -68,6 +68,7 @@ class Game {
         document.querySelectorAll('.ov-btn').forEach(x =>
           x.classList.toggle('active', x.dataset.k === q.get('overlay')));
       }
+      if (q.has('night')) this.renderer.forceNight = parseFloat(q.get('night'));
       this.ui.update(true);
       requestAnimationFrame(ts => this.loop(ts));
       return;
@@ -85,6 +86,7 @@ class Game {
       document.querySelectorAll('.ov-btn').forEach(x =>
         x.classList.toggle('active', x.dataset.k === q.get('overlay')));
     }
+    if (q.has('night')) this.renderer.forceNight = parseFloat(q.get('night'));
     this.ui.update(true);
     this.ui.updateMinimap();
     requestAnimationFrame(ts => this.loop(ts));

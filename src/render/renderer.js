@@ -1,13 +1,14 @@
 // ============================================================================
-//  메인 렌더러 — 지면 + 입체 건물 + 차량 + 오버레이 + 프리뷰
+//  메인 렌더러 — 지면 + 캐시된 입체 건물 스프라이트 + 차량 + 야간 조명 + 오버레이
 // ============================================================================
 import {
   MAP_W, MAP_H, TW, TH, ZONE_DEF, ROADS, BUILDING_BY_ID, TICKS_PER_DAY,
   SECTOR, SECTORS_X, SECTORS_Y,
 } from '../core/config.js';
 import { idx, defOf } from '../core/world.js';
-import { Camera, isoX, isoY, shade, heat, seededRng } from './gfx.js';
+import { Camera, isoX, isoY, shade, heat } from './gfx.js';
 import { createGround, redrawGround } from './ground.js';
+import { SpriteCache, specOf } from './sprites.js';
 import { clamp, clamp01 } from '../core/utils.js';
 
 export const OVERLAYS = {
@@ -32,21 +33,39 @@ export const OVERLAYS = {
 
 const RES_COLOR = [null, [140, 190, 70], [40, 120, 50], [150, 120, 90], [60, 55, 70]];
 
+/** 부드러운 원형 광원 스프라이트 (한 번만 생성해 재사용) */
+function makeGlow(size, rgbPrefix, peak) {
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, rgbPrefix + peak + ')');
+  grad.addColorStop(0.45, rgbPrefix + (peak * 0.32).toFixed(3) + ')');
+  grad.addColorStop(1, rgbPrefix + '0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, size, size);
+  return c;
+}
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.cam = new Camera();
     this.ground = createGround();
+    this.sprites = new SpriteCache(220);
     this.overlay = document.createElement('canvas');
     this.overlay.width = MAP_W; this.overlay.height = MAP_H;
     this.octx = this.overlay.getContext('2d');
     this.oimg = this.octx.createImageData(MAP_W, MAP_H);
     this.overlayMode = 'none';
-    this.overlayDirty = true;
     this.showGrid = false;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.frame = 0;
+    this.lightQueue = [];
+    this.fxQueue = [];
+    this.lampSprite = makeGlow(64, 'rgba(255,214,140,', 0.55);
+    this.headlight = makeGlow(32, 'rgba(255,240,190,', 0.7);
     this.stats = { drawn: 0 };
   }
 
@@ -57,15 +76,24 @@ export class Renderer {
     this.cam.resize(r.width, r.height);
   }
 
-  setOverlay(mode) { this.overlayMode = mode; this.overlayDirty = true; }
+  setOverlay(mode) { this.overlayMode = mode; }
 
-  // -------------------------------------------------------------------------
+  nightFactor(w) {
+    if (this.forceNight !== undefined) return this.forceNight;
+    const phase = ((w.city.tick % TICKS_PER_DAY) + (w.subTick || 0)) / TICKS_PER_DAY;
+    const light = 0.5 - 0.5 * Math.cos(2 * Math.PI * phase);
+    return clamp01(1 - light * 1.35);
+  }
+
+  // =========================================================================
   render(w, ui) {
     const ctx = this.ctx, cam = this.cam;
     this.frame++;
     redrawGround(w, this.ground);
-
     const night = this.nightFactor(w);
+    this.lightQueue.length = 0;
+    this.fxQueue.length = 0;
+
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     ctx.fillStyle = night > 0.5 ? '#070d16' : '#0d1520';
     ctx.fillRect(0, 0, cam.vw, cam.vh);
@@ -73,23 +101,17 @@ export class Renderer {
     // --- 지면 -------------------------------------------------------------
     const gm = cam.groundMatrix();
     ctx.save();
-    ctx.imageSmoothingEnabled = cam.zoom < 1.2;
+    ctx.imageSmoothingEnabled = true;
     ctx.setTransform(this.dpr * gm[0], this.dpr * gm[1], this.dpr * gm[2],
                      this.dpr * gm[3], this.dpr * gm[4], this.dpr * gm[5]);
     ctx.drawImage(this.ground.canvas, 0, 0);
     ctx.restore();
-
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    if (night > 0.02) {
-      ctx.fillStyle = `rgba(10,20,58,${(night * 0.46).toFixed(3)})`;
-      ctx.fillRect(0, 0, cam.vw, cam.vh);
-    }
 
-    // --- 오버레이 ----------------------------------------------------------
     if (this.overlayMode !== 'none') this.drawOverlay(w);
 
-    // --- 프롭(건물/차량) ----------------------------------------------------
-    const b = cam.visibleBounds(6);
+    // --- 프롭 수집 및 깊이 정렬 ---------------------------------------------
+    const b = cam.visibleBounds(8);
     const props = [];
     const seen = new Set();
     for (let y = b.y0; y <= b.y1; y++) {
@@ -117,7 +139,19 @@ export class Renderer {
     }
     this.stats.drawn = props.length;
 
-    // --- 그리드 / 프리뷰 / 선택 ---------------------------------------------
+    // --- 굴뚝 연기 / 풍력 블레이드 ------------------------------------------
+    for (const f of this.fxQueue) this.drawFx(f);
+
+    // --- 야간 틴트 ----------------------------------------------------------
+    if (night > 0.02) {
+      ctx.fillStyle = `rgba(12,22,58,${(night * 0.52).toFixed(3)})`;
+      ctx.fillRect(0, 0, cam.vw, cam.vh);
+      this.drawNightLights(w, night, b);
+    }
+
+    // --- 상태 표시 / UI 보조 -------------------------------------------------
+    for (const p of props) if (p.t === 0) this.drawBuildingOverlay(w, p.o, night);
+
     if (ui) {
       if (ui.showGrid && cam.zoom > 0.5) this.drawGrid(w);
       this.drawSectorBorders(w, ui);
@@ -127,248 +161,231 @@ export class Renderer {
     }
   }
 
-  nightFactor(w) {
-    const phase = ((w.city.tick % TICKS_PER_DAY) + (w.subTick || 0)) / TICKS_PER_DAY;
-    const light = 0.5 - 0.5 * Math.cos(2 * Math.PI * phase);
-    return clamp01(1 - light * 1.35);
-  }
-
-  // -------------------------------------------------------------------------
+  // =========================================================================
   //  건물
-  // -------------------------------------------------------------------------
+  // =========================================================================
   drawBuilding(w, b, night) {
     const ctx = this.ctx, cam = this.cam, z = cam.zoom;
-    const d = defOf(b);
-    if (!d) return;
-    const isGrowth = b.kind === 'growth';
-    const lvl = b.level - 1;
-
-    let baseH = isGrowth ? d.height[lvl] : (d.height || 20);
-    let color, roofColor;
-    if (isGrowth) {
-      color = d.palette[b.variant % d.palette.length];
-      roofColor = d.roofs ? d.roofs[b.variant % d.roofs.length] : '#6a6258';
-    } else {
-      color = d.color || '#c8cdd2';
-      roofColor = d.roof || color;
-    }
-    if (b.abandoned) { color = b.burnt ? '#4a4038' : '#8a857c'; roofColor = b.burnt ? '#3a332c' : '#6c665e'; }
-
-    const prog = b.progress !== undefined && b.progress < 1 ? Math.max(0.12, b.progress) : 1;
-    const H = baseH * prog * z;
+    const def = defOf(b);
+    if (!def) return;
 
     const [ax, ay] = cam.tileToScreen(b.x, b.y);
-    const [bx2, by2] = cam.tileToScreen(b.x + b.w, b.y);
     const [cx2, cy2] = cam.tileToScreen(b.x + b.w, b.y + b.h);
-    const [dx2, dy2] = cam.tileToScreen(b.x, b.y + b.h);
-
-    // 화면 밖 컬링
-    const minX = Math.min(ax, dx2), maxX = Math.max(bx2, cx2);
-    if (maxX < -40 || minX > cam.vw + 40) return;
-    const maxY = Math.max(ay, cy2), minY = Math.min(ay, cy2) - H;
-    if (maxY < -40 || minY > cam.vh + 40) return;
-
-    const shp = d.shape;
-    if (shp === 'park') { this.drawPark(b, d, ax, ay, bx2, by2, cx2, cy2, dx2, dy2, night); return; }
-    if (shp === 'pylon') { this.drawPylon(b, d, ax, ay, cx2, cy2, H, night); return; }
+    if (cx2 < -60 || ax > cam.vw + 60 || cy2 < -400 || ay > cam.vh + 80) return;
 
     // 그림자
-    ctx.fillStyle = `rgba(8,14,20,${0.30 * (1 - night * 0.6)})`;
+    const [bx2, by2] = cam.tileToScreen(b.x + b.w, b.y);
+    const [dx2, dy2] = cam.tileToScreen(b.x, b.y + b.h);
+    const sh = 3.5 * z;
+    ctx.fillStyle = `rgba(10,16,24,${(0.26 * (1 - night * 0.55)).toFixed(3)})`;
     ctx.beginPath();
-    const sh = 4 * z;
     ctx.moveTo(ax + sh, ay + sh * 0.5); ctx.lineTo(bx2 + sh, by2 + sh * 0.5);
     ctx.lineTo(cx2 + sh, cy2 + sh * 0.5); ctx.lineTo(dx2 + sh, dy2 + sh * 0.5);
     ctx.closePath(); ctx.fill();
 
-    const inset = isGrowth ? 0.10 : 0.06;
-    const ix = (p, q, t) => p + (q - p) * t;
-    const A = [ix(ax, cx2, inset), ix(ay, cy2, inset)];
-    const B = [ix(bx2, dx2, inset), ix(by2, dy2, inset)];
-    const C = [ix(cx2, ax, inset), ix(cy2, ay, inset)];
-    const D = [ix(dx2, bx2, inset), ix(dy2, by2, inset)];
-    const Au = [A[0], A[1] - H], Bu = [B[0], B[1] - H], Cu = [C[0], C[1] - H], Du = [D[0], D[1] - H];
-
-    const constructing = prog < 1;
-    const cLeft = constructing ? '#b08a45' : shade(color, 0.66, night);
-    const cRight = constructing ? '#c79c50' : shade(color, 0.88, night);
-
-    // 좌측면 (D-C)
-    quad(ctx, D, C, Cu, Du, cLeft);
-    // 우측면 (C-B)
-    quad(ctx, C, B, Bu, Cu, cRight);
-
-    // 지붕
-    const pitched = isGrowth && d.cat === 'res' && d.size === 1;
-    if (pitched && !constructing) {
-      const R1 = [(Au[0] + Du[0]) / 2, (Au[1] + Du[1]) / 2 - 7 * z];
-      const R2 = [(Bu[0] + Cu[0]) / 2, (Bu[1] + Cu[1]) / 2 - 7 * z];
-      quad(ctx, Au, Bu, R2, R1, shade(roofColor, 0.80, night));
-      quad(ctx, Du, Cu, R2, R1, shade(roofColor, 1.02, night));
-    } else {
-      quad(ctx, Au, Bu, Cu, Du, shade(roofColor, constructing ? 0.7 : 1.0, night));
-      if (!constructing && H > 12 * z) {
-        // 옥상 난간
-        ctx.strokeStyle = shade(roofColor, 0.7, night);
-        ctx.lineWidth = Math.max(1, 1.2 * z);
-        ctx.beginPath();
-        ctx.moveTo(Au[0], Au[1]); ctx.lineTo(Bu[0], Bu[1]);
-        ctx.lineTo(Cu[0], Cu[1]); ctx.lineTo(Du[0], Du[1]); ctx.closePath();
-        ctx.stroke();
-      }
+    // 건설 중인 건물은 캐시를 쓰지 않고 골조를 그린다
+    if (b.progress !== undefined && b.progress < 1) {
+      this.drawConstruction(w, b, def, ax, ay, bx2, by2, cx2, cy2, dx2, dy2, night);
+      return;
     }
 
-    // 창문
-    if (!constructing && !b.burnt && z > 0.45 && H > 16 * z) {
-      const floors = clamp(Math.round(baseH / 11), 1, 9);
-      const cols = clamp(Math.round(b.w * 2.2), 2, 6);
-      const lit = night > 0.35 && !b.abandoned;
-      this.windows(D, C, H, cols, floors, lit, b.uid, night, 0.55);
-      this.windows(C, B, H, cols, floors, lit, b.uid * 7 + 3, night, 0.75);
+    const spec = specOf(b);
+    if (spec.kind === 'service') spec.def = def;
+    const sp = this.sprites.get(spec, z, def);
+    const s = z / sp.z;
+    const dw = sp.w * s, dh = sp.h * s;
+    const dx = ax - sp.ox * s, dy = ay - sp.oy * s;
+    ctx.drawImage(sp.body, dx, dy, dw, dh);
+
+    if (sp.hasLights && night > 0.05) this.lightQueue.push({ s: sp.lights, x: dx, y: dy, w: dw, h: dh });
+    if (sp.fx && (sp.fx.smoke || sp.fx.blades)) this.fxQueue.push({ b, fx: sp.fx, night });
+  }
+
+  /** 건설 현장 — 기초 + 골조 + 타워크레인 */
+  drawConstruction(w, b, def, ax, ay, bx2, by2, cx2, cy2, dx2, dy2, night) {
+    const ctx = this.ctx, z = this.cam.zoom;
+    const prog = Math.max(0.1, b.progress);
+    const full = (b.kind === 'growth' ? def.height[b.level - 1] : (def.height || 20));
+    const H = full * prog * z;
+    const q = (p1, p2, p3, p4, fill) => {
+      ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]);
+      ctx.lineTo(p3[0], p3[1]); ctx.lineTo(p4[0], p4[1]); ctx.closePath();
+      ctx.fillStyle = fill; ctx.fill();
+    };
+    // 부지
+    q([ax, ay], [bx2, by2], [cx2, cy2], [dx2, dy2], '#8a8375');
+    const A = [ax, ay - H], B = [bx2, by2 - H], C = [cx2, cy2 - H], D = [dx2, dy2 - H];
+    q([dx2, dy2], [cx2, cy2], C, D, shade('#b9a887', 0.66, night));
+    q([cx2, cy2], [bx2, by2], B, C, shade('#b9a887', 0.88, night));
+    q(A, B, C, D, shade('#cbbb9a', 1.0, night));
+    // 층 슬래브
+    ctx.strokeStyle = 'rgba(60,50,40,.45)'; ctx.lineWidth = 1;
+    const floors = Math.max(1, Math.round(full * prog / 11));
+    ctx.beginPath();
+    for (let f = 1; f <= floors; f++) {
+      const hh = (H * f) / (floors + 1);
+      ctx.moveTo(dx2, dy2 - hh); ctx.lineTo(cx2, cy2 - hh); ctx.lineTo(bx2, by2 - hh);
     }
+    ctx.stroke();
+    // 타워크레인
+    const mast = H + 26 * z;
+    ctx.strokeStyle = '#e0b23c'; ctx.lineWidth = Math.max(1, 1.6 * z);
+    ctx.beginPath();
+    ctx.moveTo(cx2, cy2); ctx.lineTo(cx2, cy2 - mast);
+    ctx.lineTo(cx2 + 30 * z, cy2 - mast + 3 * z);
+    ctx.moveTo(cx2, cy2 - mast); ctx.lineTo(cx2 - 12 * z, cy2 - mast + 2 * z);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(220,220,220,.7)'; ctx.lineWidth = Math.max(0.7, 1 * z);
+    ctx.beginPath();
+    ctx.moveTo(cx2 + 22 * z, cy2 - mast + 2 * z);
+    ctx.lineTo(cx2 + 22 * z, cy2 - mast + 20 * z);
+    ctx.stroke();
+    // 안전 펜스
+    ctx.strokeStyle = 'rgba(230,180,60,.75)'; ctx.lineWidth = Math.max(0.8, 1.2 * z);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay - 4 * z); ctx.lineTo(bx2, by2 - 4 * z);
+    ctx.lineTo(cx2, cy2 - 4 * z); ctx.lineTo(dx2, dy2 - 4 * z); ctx.closePath();
+    ctx.stroke();
+  }
 
-    // 건설 중 표시
-    if (constructing) {
-      ctx.strokeStyle = 'rgba(255,220,120,0.85)';
-      ctx.lineWidth = Math.max(1, 1.5 * z);
-      ctx.beginPath();
-      ctx.moveTo(C[0], C[1]); ctx.lineTo(Cu[0], Cu[1] - 10 * z);
-      ctx.lineTo(Cu[0] + 16 * z, Cu[1] - 10 * z);
-      ctx.stroke();
-    }
+  /** 화재 · 경고 아이콘 · 서비스 아이콘 (야간 틴트 위에 그린다) */
+  drawBuildingOverlay(w, b, night) {
+    const ctx = this.ctx, cam = this.cam, z = cam.zoom;
+    if (z < 0.4) return;
+    const def = defOf(b);
+    if (!def) return;
+    const [mx, my] = cam.tileToScreen(b.x + b.w / 2, b.y + b.h / 2);
+    const H = (b.kind === 'growth' ? def.height[b.level - 1] : (def.height || 20)) * z;
 
-    // 화재
-    if (b.fire > 0) this.drawFire(C, B, D, H, z);
+    if (b.fire > 0) this.drawFire(mx, my - H * 0.6, z);
 
-    // 서비스 아이콘
-    if (!isGrowth && z > 0.62 && d.icon) {
-      const cxm = (Au[0] + Cu[0]) / 2, cym = (Au[1] + Cu[1]) / 2;
+    if (b.kind === 'service' && z > 0.62 && def.icon) {
       ctx.font = `${Math.min(26, 13 * z + 6)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji"`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.globalAlpha = 0.95;
-      ctx.fillText(d.icon, cxm, cym - 4 * z);
+      ctx.fillText(def.icon, mx, my - H - 10 * z);
       ctx.globalAlpha = 1;
     }
-
-    // 상태 경고 아이콘
-    if (z > 0.5 && b.kind === 'growth' && !b.abandoned) {
+    if (b.kind === 'growth' && !b.abandoned) {
       let warn = null;
       if (!b.powered) warn = '⚡';
       else if (!b.watered) warn = '💧';
       if (warn && (this.frame >> 5) % 2 === 0) {
         ctx.font = `${Math.min(20, 10 * z + 5)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji"`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-        ctx.fillText(warn, (Au[0] + Cu[0]) / 2, Au[1] - 2);
+        ctx.fillText(warn, mx, my - H - 4 * z);
       }
     }
-    if (b.abandoned && z > 0.5 && (this.frame >> 6) % 2 === 0) {
+    if (b.abandoned && (this.frame >> 6) % 2 === 0) {
       ctx.font = `${Math.min(20, 10 * z + 5)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji"`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-      ctx.fillText('🏚️', (Au[0] + Cu[0]) / 2, Au[1] - 2);
+      ctx.fillText('🏚️', mx, my - H - 4 * z);
     }
   }
 
-  windows(p0, p1, H, cols, rows, lit, seed, night, faceShade) {
-    const ctx = this.ctx;
-    const rnd = seededRng(seed * 2654435761);
-    const dark = `rgba(30,40,55,${0.55 - night * 0.2})`;
-    for (let r = 0; r < rows; r++) {
-      const y0 = (r + 0.24) / rows, y1 = (r + 0.74) / rows;
-      for (let c = 0; c < cols; c++) {
-        const t0 = (c + 0.22) / cols, t1 = (c + 0.78) / cols;
-        const on = lit && rnd() < 0.55;
-        ctx.fillStyle = on ? 'rgba(255,214,130,0.92)' : dark;
-        const P = (t, yy) => [
-          p0[0] + (p1[0] - p0[0]) * t,
-          p0[1] + (p1[1] - p0[1]) * t - H * yy,
-        ];
-        const a = P(t0, y0), b = P(t1, y0), c2 = P(t1, y1), d = P(t0, y1);
+  // --- 애니메이션 이펙트 ----------------------------------------------------
+  drawFx(f) {
+    const ctx = this.ctx, cam = this.cam, z = cam.zoom;
+    const b = f.b;
+    const loc = (tx, ty, h) => {
+      const [sx, sy] = cam.tileToScreen(b.x + tx, b.y + ty);
+      return [sx, sy - h * z];
+    };
+    if (f.fx.smoke && z > 0.3) {
+      for (const s of f.fx.smoke) {
+        const p = loc(s.x, s.y, s.h);
+        const dark = s.dark;
+        for (let i = 0; i < 6; i++) {
+          const t = ((this.frame * 0.006) + i / 6) % 1;
+          const r = (s.r * 26 + t * 30) * z;
+          const a = (1 - t) * (dark ? 0.30 : 0.24) * (0.6 + 0.4 * Math.sin(i));
+          ctx.fillStyle = dark ? `rgba(70,72,76,${a.toFixed(3)})` : `rgba(226,232,238,${a.toFixed(3)})`;
+          ctx.beginPath();
+          ctx.ellipse(p[0] + Math.sin(t * 4 + i) * 8 * z, p[1] - t * 52 * z, r, r * 0.72, 0, 0, 6.2832);
+          ctx.fill();
+        }
+      }
+    }
+    if (f.fx.blades) {
+      for (const bl of f.fx.blades) {
+        const p = loc(bl.x, bl.y, bl.h);
+        const R = bl.r * z;
+        const ang = this.frame * 0.045;
+        ctx.strokeStyle = f.night > 0.4 ? '#c8ccd0' : '#f2f5f7';
+        ctx.lineWidth = Math.max(1, 2.2 * z);
+        ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
-        ctx.lineTo(c2[0], c2[1]); ctx.lineTo(d[0], d[1]);
-        ctx.closePath(); ctx.fill();
-        if (!on) rnd();
+        for (let i = 0; i < 3; i++) {
+          const a = ang + (i * Math.PI * 2) / 3;
+          ctx.moveTo(p[0], p[1]);
+          ctx.lineTo(p[0] + Math.cos(a) * R * 0.5, p[1] + Math.sin(a) * R);
+        }
+        ctx.stroke();
+        ctx.lineCap = 'butt';
+        ctx.fillStyle = '#dfe5ea';
+        ctx.beginPath(); ctx.arc(p[0], p[1], 2 * z, 0, 6.2832); ctx.fill();
       }
     }
   }
 
-  drawPark(b, d, ax, ay, bx2, by2, cx2, cy2, dx2, dy2, night) {
-    const ctx = this.ctx, z = this.cam.zoom;
-    ctx.beginPath();
-    ctx.moveTo(ax, ay); ctx.lineTo(bx2, by2); ctx.lineTo(cx2, cy2); ctx.lineTo(dx2, dy2);
-    ctx.closePath();
-    ctx.fillStyle = shade(d.color || '#5aa055', 1, night);
-    ctx.fill();
-    ctx.strokeStyle = shade('#d8d2bd', 0.9, night);
-    ctx.lineWidth = Math.max(1, 1.6 * z);
-    ctx.stroke();
-    // 나무 몇 그루
-    const rnd = seededRng(b.uid * 7919 + 13);
-    // 산책로
-    ctx.strokeStyle = shade('#cfc7b0', 0.85, night);
-    ctx.lineWidth = Math.max(1, 2.4 * z);
-    ctx.beginPath();
-    ctx.moveTo((ax + dx2) / 2, (ay + dy2) / 2);
-    ctx.lineTo((bx2 + cx2) / 2, (by2 + cy2) / 2);
-    ctx.stroke();
-    // 나무를 격자 지터로 고르게 배치
-    const cols = Math.max(1, b.w), rows = Math.max(1, b.h);
-    for (let gy = 0; gy < rows; gy++) {
-      for (let gx = 0; gx < cols; gx++) {
-        if (rnd() < 0.34) continue;
-        const tx = b.x + gx + 0.25 + rnd() * 0.5;
-        const ty = b.y + gy + 0.25 + rnd() * 0.5;
-        const [sx, sy] = this.cam.tileToScreen(tx, ty);
-        const rr = (3.0 + rnd() * 2.0) * z;
-        ctx.fillStyle = `rgba(12,24,14,${0.22 * (1 - night * 0.5)})`;
-        ctx.beginPath(); ctx.ellipse(sx + rr * 0.3, sy, rr * 0.95, rr * 0.5, 0, 0, 6.2832); ctx.fill();
-        ctx.fillStyle = shade(rnd() < 0.5 ? '#2f6b2c' : '#3c7d35', 1, night);
-        ctx.beginPath(); ctx.arc(sx, sy - rr * 1.25, rr, 0, 6.2832); ctx.fill();
-        ctx.fillStyle = `rgba(255,255,255,${0.12 * (1 - night)})`;
-        ctx.beginPath(); ctx.arc(sx - rr * 0.32, sy - rr * 1.55, rr * 0.42, 0, 6.2832); ctx.fill();
-      }
-    }
-    if (d.icon && z > 0.75) {
-      ctx.font = `${Math.min(22, 11 * z + 5)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji"`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(d.icon, (ax + cx2) / 2, (ay + cy2) / 2 - 6 * z);
-    }
-  }
-
-  drawPylon(b, d, ax, ay, cx2, cy2, H, night) {
-    const ctx = this.ctx, z = this.cam.zoom;
-    const mx = (ax + cx2) / 2, my = (ay + cy2) / 2;
-    ctx.strokeStyle = shade(d.color || '#8d939a', 0.9, night);
-    ctx.lineWidth = Math.max(1, 1.6 * z);
-    ctx.beginPath();
-    ctx.moveTo(mx - 5 * z, my); ctx.lineTo(mx, my - H);
-    ctx.moveTo(mx + 5 * z, my); ctx.lineTo(mx, my - H);
-    ctx.moveTo(mx - 6 * z, my - H * 0.72); ctx.lineTo(mx + 6 * z, my - H * 0.72);
-    ctx.moveTo(mx - 4 * z, my - H * 0.88); ctx.lineTo(mx + 4 * z, my - H * 0.88);
-    ctx.stroke();
-  }
-
-  drawFire(C, B, D, H, z) {
+  drawFire(cx, cy, z) {
     const ctx = this.ctx;
     const t = this.frame * 0.22;
-    const cx = (C[0] + B[0] + D[0]) / 3, cy = (C[1] + B[1] + D[1]) / 3 - H;
-    for (let i = 0; i < 5; i++) {
-      const ph = t + i * 1.3;
-      const ox = Math.sin(ph) * 8 * z;
-      const oy = -((ph % 3) / 3) * 26 * z;
-      const r = (5 + Math.sin(ph * 2) * 2) * z;
-      ctx.fillStyle = i % 2 ? 'rgba(255,160,40,0.85)' : 'rgba(255,90,30,0.75)';
+    for (let i = 0; i < 6; i++) {
+      const ph = t + i * 1.1;
+      const ox = Math.sin(ph) * 9 * z;
+      const oy = -((ph % 3) / 3) * 30 * z;
+      const r = (5 + Math.sin(ph * 2) * 2.4) * z;
+      ctx.fillStyle = i % 2 ? 'rgba(255,168,44,0.88)' : 'rgba(255,92,30,0.8)';
       ctx.beginPath(); ctx.arc(cx + ox, cy + oy, r, 0, 6.2832); ctx.fill();
     }
-    ctx.fillStyle = 'rgba(70,70,80,0.35)';
-    ctx.beginPath(); ctx.arc(cx, cy - 34 * z, 13 * z, 0, 6.2832); ctx.fill();
+    ctx.fillStyle = 'rgba(70,70,80,0.32)';
+    ctx.beginPath(); ctx.arc(cx, cy - 40 * z, 15 * z, 0, 6.2832); ctx.fill();
   }
 
-  // -------------------------------------------------------------------------
+  // --- 야간 조명 합성 --------------------------------------------------------
+  drawNightLights(w, night, bounds) {
+    const ctx = this.ctx, cam = this.cam, z = cam.zoom;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = Math.min(1, night * 1.05);
+    for (const l of this.lightQueue) ctx.drawImage(l.s, l.x, l.y, l.w, l.h);
+
+    // 가로등 — 부드러운 광원 스프라이트를 블릿한다
+    if (z > 0.55) {
+      ctx.globalAlpha = Math.min(0.5, night * 0.45);
+      const r = 11 * z;
+      for (let y = bounds.y0; y <= bounds.y1; y++) {
+        for (let x = bounds.x0; x <= bounds.x1; x++) {
+          if (((x * 5 + y * 3) % 9) !== 0) continue;
+          const i = idx(x, y);
+          if (!w.road[i]) continue;
+          const [sx, sy] = cam.tileToScreen(x + 0.5, y + 0.5);
+          if (sx < -r || sx > cam.vw + r || sy < -r || sy > cam.vh + r) continue;
+          ctx.drawImage(this.lampSprite, sx - r, sy - r * 0.62 - 4 * z, r * 2, r * 1.24);
+        }
+      }
+    }
+    // 차량 전조등
+    ctx.globalAlpha = Math.min(1, night * 0.9);
+    const hr = 9 * z;
+    for (const c of this.carLights || []) {
+      ctx.drawImage(this.headlight, c[0] - hr, c[1] - hr * 0.6, hr * 2, hr * 1.2);
+    }
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // =========================================================================
   //  차량
-  // -------------------------------------------------------------------------
+  // =========================================================================
   drawCar(w, car, night) {
     const ctx = this.ctx, cam = this.cam, z = cam.zoom;
-    if (z < 0.35) return;
+    if (z < 0.32) return;
+    if (!this.carLights || this.carLights.frame !== this.frame) {
+      this.carLights = []; this.carLights.frame = this.frame;
+    }
     const seg = Math.floor(car.t);
     const f = car.t - seg;
     const p = car.path;
@@ -383,37 +400,58 @@ export class Renderer {
     let dx = nx - sx, dy = ny - sy;
     const len = Math.hypot(dx, dy) || 1;
     dx /= len; dy /= len;
-    const px = -dy, py = dx;                     // 수직(차로 오프셋)
+    const px = -dy, py = dx;
     const off = 3.2 * z * car.lane;
     const cx = sx + px * off, cy = sy + py * off;
 
-    const L = (car.kind === 'truck' ? 7 : 5.2) * z;
-    const Wd = (car.kind === 'truck' ? 3.2 : 2.6) * z;
-    ctx.fillStyle = shade(car.color, 1, night * 0.8);
+    const truck = car.kind === 'truck';
+    const L = (truck ? 7.5 : 5.4) * z, Wd = (truck ? 3.2 : 2.6) * z;
+    const bodyH = (truck ? 5.5 : 3.6) * z;
+    const corner = (fw, sw2, h) => [cx + dx * fw + px * sw2, cy + dy * fw + py * sw2 - h];
+
+    // 그림자
+    ctx.fillStyle = 'rgba(10,16,24,.28)';
     ctx.beginPath();
-    ctx.moveTo(cx + dx * L + px * Wd, cy + dy * L + py * Wd);
-    ctx.lineTo(cx + dx * L - px * Wd, cy + dy * L - py * Wd);
-    ctx.lineTo(cx - dx * L - px * Wd, cy - dy * L - py * Wd);
-    ctx.lineTo(cx - dx * L + px * Wd, cy - dy * L + py * Wd);
-    ctx.closePath();
-    ctx.fill();
-    if (night > 0.35 && z > 0.6) {
-      ctx.fillStyle = 'rgba(255,240,180,0.9)';
+    ctx.moveTo(...corner(L, Wd, 0)); ctx.lineTo(...corner(L, -Wd, 0));
+    ctx.lineTo(...corner(-L, -Wd, 0)); ctx.lineTo(...corner(-L, Wd, 0));
+    ctx.closePath(); ctx.fill();
+    // 차체 측면
+    const body = shade(car.color, 0.78, night * 0.7);
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.moveTo(...corner(L, -Wd, 0)); ctx.lineTo(...corner(-L, -Wd, 0));
+    ctx.lineTo(...corner(-L, -Wd, bodyH)); ctx.lineTo(...corner(L, -Wd, bodyH));
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = shade(car.color, 0.66, night * 0.7);
+    ctx.beginPath();
+    ctx.moveTo(...corner(L, Wd, 0)); ctx.lineTo(...corner(L, -Wd, 0));
+    ctx.lineTo(...corner(L, -Wd, bodyH)); ctx.lineTo(...corner(L, Wd, bodyH));
+    ctx.closePath(); ctx.fill();
+    // 지붕
+    ctx.fillStyle = shade(car.color, 1.0, night * 0.7);
+    ctx.beginPath();
+    ctx.moveTo(...corner(L, Wd, bodyH)); ctx.lineTo(...corner(L, -Wd, bodyH));
+    ctx.lineTo(...corner(-L, -Wd, bodyH)); ctx.lineTo(...corner(-L, Wd, bodyH));
+    ctx.closePath(); ctx.fill();
+    // 앞유리
+    if (z > 0.7) {
+      ctx.fillStyle = 'rgba(40,60,78,.75)';
       ctx.beginPath();
-      ctx.arc(cx + dx * L, cy + dy * L, 1.3 * z, 0, 6.2832);
-      ctx.fill();
+      ctx.moveTo(...corner(L * 0.45, Wd * 0.9, bodyH)); ctx.lineTo(...corner(L * 0.45, -Wd * 0.9, bodyH));
+      ctx.lineTo(...corner(L * 0.05, -Wd * 0.9, bodyH)); ctx.lineTo(...corner(L * 0.05, Wd * 0.9, bodyH));
+      ctx.closePath(); ctx.fill();
     }
+    if (night > 0.3) this.carLights.push([cx + dx * L, cy + dy * L - bodyH * 0.4]);
   }
 
-  // -------------------------------------------------------------------------
+  // =========================================================================
   //  오버레이
-  // -------------------------------------------------------------------------
+  // =========================================================================
   drawOverlay(w) {
     const mode = OVERLAYS[this.overlayMode];
     if (!mode) return;
     const data = this.oimg.data;
     const f = w.f;
-
     const put = (i, r, g, b, a) => {
       const o = i * 4;
       data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = a;
@@ -423,8 +461,8 @@ export class Renderer {
       const arr = f[mode.field], sc = mode.scale;
       for (let i = 0; i < MAP_W * MAP_H; i++) {
         if (w.water[i]) { put(i, 0, 0, 0, 0); continue; }
-        let v = clamp01(arr[i] / sc);
-        const c = heat(mode.invert ? v : v);
+        const v = clamp01(arr[i] / sc);
+        const c = heat(v);
         put(i, c[0], c[1], c[2], v < 0.02 ? 26 : 140);
       }
     } else if (mode.special === 'traffic') {
@@ -483,9 +521,9 @@ export class Renderer {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
   }
 
-  // -------------------------------------------------------------------------
+  // =========================================================================
   //  보조 표시
-  // -------------------------------------------------------------------------
+  // =========================================================================
   tilePath(x, y, w = 1, h = 1) {
     const ctx = this.ctx, cam = this.cam;
     const [ax, ay] = cam.tileToScreen(x, y);
@@ -517,7 +555,7 @@ export class Renderer {
   }
 
   drawSectorBorders(w, ui) {
-    const ctx = this.ctx, cam = this.cam;
+    const ctx = this.ctx;
     ctx.lineWidth = 2;
     for (let sy = 0; sy < SECTORS_Y; sy++) {
       for (let sx = 0; sx < SECTORS_X; sx++) {
@@ -559,7 +597,6 @@ export class Renderer {
     ctx.fill();
   }
 
-  /** ui.preview = { tiles:[[x,y,ok]], box:{x,y,w,h,ok} } */
   drawPreview(w, ui) {
     const ctx = this.ctx;
     const p = ui.preview;
@@ -593,13 +630,4 @@ export class Renderer {
       }
     }
   }
-}
-
-function quad(ctx, a, b, c, d, fill) {
-  ctx.beginPath();
-  ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
-  ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]);
-  ctx.closePath();
-  ctx.fillStyle = fill;
-  ctx.fill();
 }

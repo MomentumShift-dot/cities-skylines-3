@@ -5,7 +5,8 @@
 import { OVERLAYS } from './render/renderer.js';
 import { step } from './sim/simulation.js';
 import { idx, buildingAt } from './core/world.js';
-import { ROADS, BUILDING_BY_ID, MAP_W, SECTOR, SECTORS_X } from './core/config.js';
+import { ROADS, BUILDINGS, BUILDING_BY_ID, ZONE_DEF, MAP_W, SECTOR, SECTORS_X } from './core/config.js';
+import { SpriteCache } from './render/sprites.js';
 import * as Save from './save.js';
 import { research } from './sim/progression.js';
 
@@ -179,6 +180,41 @@ export function runSelfTest(game) {
     note(Object.keys(OVERLAYS).length + '종');
     return true;
   });
+  t('모든 건물 모델이 오류 없이 렌더링된다', () => {
+    const cache = new SpriteCache(900);
+    let n = 0, px = 0;
+    for (const d of BUILDINGS) {
+      const sp = cache.get({ key: 'T_s_' + d.id, kind: 'service', def: d, defId: d.id,
+                             level: 1, variant: 0, bw: d.w, bh: d.h, state: 'n' }, 1.0, d);
+      px += sp.w * sp.h; n++;
+    }
+    for (let z = 1; z <= 7; z++) {
+      const zd = ZONE_DEF[z];
+      for (let lv = 1; lv <= 5; lv++) {
+        for (const st of ['n', 'a', 'b']) {
+          const sp = cache.get({ key: `T_g${z}.${lv}.${st}`, kind: 'growth', zone: z, level: lv,
+                                 variant: (lv + z) % 5, bw: zd.size, bh: zd.size, state: st }, 1.0);
+          px += sp.w * sp.h; n++;
+        }
+      }
+    }
+    note(`${n}종 · ${(px / 1e6).toFixed(1)}M px`);
+    return n === BUILDINGS.length + 7 * 5 * 3;
+  });
+
+  t('스프라이트 캐시가 재사용된다', () => {
+    const cache = new SpriteCache(50);
+    const spec = { key: 'T_cache', kind: 'service', def: BUILDING_BY_ID.clinic, defId: 'clinic',
+                   level: 1, variant: 0, bw: 2, bh: 2, state: 'n' };
+    cache.get(spec, 1.0, BUILDING_BY_ID.clinic);
+    const before = cache.built;
+    for (let i = 0; i < 20; i++) cache.get(spec, 1.0, BUILDING_BY_ID.clinic);
+    const sameBucket = cache.built === before;
+    cache.get(spec, 2.0, BUILDING_BY_ID.clinic);   // 확대 단계가 바뀌면 다시 그린다
+    note(`재사용 ${sameBucket ? 'OK' : 'FAIL'} · 총 생성 ${cache.built}`);
+    return sameBucket && cache.built === before + 1;
+  });
+
   t('프리뷰가 계산된다', () => {
     game.setTool({ type: 'build', defId: 'clinic' });
     game.input.updatePreview({ x: cx - 3, y: oy - 3 });
