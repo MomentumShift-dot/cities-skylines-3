@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Cities: Skylines III</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏙️</text></svg>">
+</head>
+<body>
+<div id="app">
+  <canvas id="view"></canvas>
+
+  <!-- 상단 바 -->
+  <header id="topbar">
+    <div class="tb-left">
+      <div class="brand"><span class="brand-mark">🏙️</span><span class="brand-txt">Cities<em>: Skylines</em> <b>III</b></span></div>
+      <div class="tb-city">
+        <div id="cityName" class="city-name" title="클릭하여 도시 이름 변경">뉴 스카이라인</div>
+        <div id="milestoneName" class="city-sub">개척지</div>
+      </div>
+    </div>
+
+    <div class="tb-stats">
+      <div class="stat" id="stat-cash" title="보유 자금 / 월 수지">
+        <span class="s-ico">💰</span><span class="s-val">₡100,000</span><span class="s-sub"></span>
+      </div>
+      <div class="stat" id="stat-pop" title="인구 / 수용 가능 인구">
+        <span class="s-ico">👥</span><span class="s-val">0</span><span class="s-sub"></span>
+      </div>
+      <div class="stat" id="stat-happy" title="시민 만족도">
+        <span class="s-ico">😊</span><span class="s-val">50</span><span class="s-sub"></span>
+      </div>
+      <div class="stat" id="stat-jobs" title="실업률">
+        <span class="s-ico">💼</span><span class="s-val">0%</span><span class="s-sub"></span>
+      </div>
+      <div class="stat" id="stat-traffic" title="교통 흐름">
+        <span class="s-ico">🚗</span><span class="s-val">100%</span><span class="s-sub"></span>
+      </div>
+      <div class="stat" id="stat-power" title="전력 수급">
+        <span class="s-ico">⚡</span><span class="s-val">0%</span><span class="s-sub"></span>
+      </div>
+      <div class="stat" id="stat-water" title="상수도 수급">
+        <span class="s-ico">💧</span><span class="s-val">0%</span><span class="s-sub"></span>
+      </div>
+    </div>
+
+    <div class="tb-right">
+      <div id="xpBox" class="xp-box" title="확장 포인트">
+        <div class="xp-top"><span id="xpLabel">XP 0</span><span id="dpLabel">🔬 0</span><span id="permitLabel">🗺️ 4</span></div>
+        <div class="xp-bar"><div id="xpFill"></div></div>
+      </div>
+      <div id="clock" class="clock">
+        <div class="date" id="dateLabel">2026년 1월 1일</div>
+        <div class="speeds">
+          <button class="spd" data-speed="0" title="일시정지 (Space)">❚❚</button>
+          <button class="spd active" data-speed="1" title="보통 속도">▶</button>
+          <button class="spd" data-speed="2" title="빠르게">▶▶</button>
+          <button class="spd" data-speed="3" title="매우 빠르게">▶▶▶</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- RCI 수요 -->
+  <div id="rci" title="구역 수요 (R 주거 / C 상업 / I 산업 / O 사무)">
+    <div class="rci-bar" data-k="res"><div class="rci-fill"></div><span>R</span></div>
+    <div class="rci-bar" data-k="com"><div class="rci-fill"></div><span>C</span></div>
+    <div class="rci-bar" data-k="ind"><div class="rci-fill"></div><span>I</span></div>
+    <div class="rci-bar" data-k="off"><div class="rci-fill"></div><span>O</span></div>
+  </div>
+
+  <!-- 좌측 정보 오버레이 선택 -->
+  <div id="overlayBar"></div>
+
+  <!-- 우측 패널 -->
+  <aside id="infoPanel" class="panel hidden">
+    <button class="panel-close" data-close="infoPanel">✕</button>
+    <div id="infoBody"></div>
+  </aside>
+
+  <!-- 미니맵 -->
+  <div id="minimapBox">
+    <canvas id="minimap" width="180" height="180"></canvas>
+    <div class="mm-label">미니맵</div>
+  </div>
+
+  <!-- 알림 -->
+  <div id="notifs"></div>
+
+  <!-- 하단 툴바 -->
+  <div id="paletteWrap"><div id="palette" class="hidden"></div></div>
+  <nav id="toolbar"></nav>
+
+  <!-- 상태 표시줄 -->
+  <div id="statusbar"><span id="statusText">좌클릭: 건설 · 우클릭/드래그: 화면 이동 · 휠: 확대/축소 · H: 도움말</span><span id="fpsText"></span></div>
+
+  <!-- 모달 -->
+  <div id="modalRoot"></div>
+  <div id="tooltip" class="hidden"></div>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>

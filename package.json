@@ -1,0 +1,13 @@
+{
+  "name": "cities-skylines-3",
+  "version": "0.1.0",
+  "description": "Cities: Skylines III — 브라우저 기반 아이소메트릭 도시 건설 시뮬레이션",
+  "type": "module",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "check": "node --check src/main.js && find src tools -name '*.js' -o -name '*.mjs' | xargs -n1 node --check && echo OK",
+    "test": "node tools/smoketest.mjs",
+    "balance": "node tools/balance.mjs"
+  },
+  "license": "MIT"
+}
