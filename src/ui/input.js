@@ -106,6 +106,7 @@ export class Input {
         case 'e': g.ui.selectGroup('zone'); break;
         case 'x': g.ui.selectGroup('demolish'); break;
         case 'g': g.showGrid = !g.showGrid; break;
+        case 'n': g.cycleDayNight(); break;
         case 'b': g.ui.openModal('budget'); break;
         case 't': g.ui.openModal('stats'); break;
         case 'm': g.ui.openModal('miles'); break;

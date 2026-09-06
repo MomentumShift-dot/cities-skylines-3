@@ -2,7 +2,7 @@
 //  메인 렌더러 — 지면 + 캐시된 입체 건물 스프라이트 + 차량 + 야간 조명 + 오버레이
 // ============================================================================
 import {
-  MAP_W, MAP_H, TW, TH, ZONE_DEF, ROADS, BUILDING_BY_ID, TICKS_PER_DAY,
+  MAP_W, MAP_H, TW, TH, ZONE_DEF, ROADS, BUILDING_BY_ID,
   SECTOR, SECTORS_X, SECTORS_Y,
 } from '../core/config.js';
 import { idx, defOf } from '../core/world.js';
@@ -33,6 +33,11 @@ export const OVERLAYS = {
 
 const RES_COLOR = [null, [140, 190, 70], [40, 120, 50], [150, 120, 90], [60, 55, 70]];
 
+/** 시각(0..1) → 야간 강도 비율 키프레임 */
+const NIGHT_CURVE = [
+  [0.00, 1.0], [0.16, 1.0], [0.26, 0.0], [0.72, 0.0], [0.84, 1.0], [1.00, 1.0],
+];
+
 /** 부드러운 원형 광원 스프라이트 (한 번만 생성해 재사용) */
 function makeGlow(size, rgbPrefix, peak) {
   const c = document.createElement('canvas');
@@ -60,6 +65,12 @@ export class Renderer {
     this.oimg = this.octx.createImageData(MAP_W, MAP_H);
     this.overlayMode = 'none';
     this.showGrid = false;
+    // 낮/밤은 시뮬레이션 속도와 무관한 실시간 주기로 돈다.
+    // (게임 내 1일은 1초 미만이라 그대로 쓰면 화면이 초 단위로 깜박인다)
+    this.timeOfDay = 0.42;          // 0 = 자정, 0.5 = 정오
+    this.dayLength = 300;           // 한 주기(초)
+    this.dayNightMode = 'auto';     // auto | day | night
+    this.maxNight = 0.78;
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.frame = 0;
     this.lightQueue = [];
@@ -78,11 +89,42 @@ export class Renderer {
 
   setOverlay(mode) { this.overlayMode = mode; }
 
-  nightFactor(w) {
+  /** 실시간 dt(초)만큼 하루를 진행시킨다 */
+  advanceClock(dt) {
+    if (this.dayNightMode !== 'auto') return;
+    this.timeOfDay = (this.timeOfDay + dt / this.dayLength) % 1;
+  }
+
+  setDayNightMode(mode) {
+    this.dayNightMode = mode;
+    if (mode === 'day') this.timeOfDay = 0.5;
+    else if (mode === 'night') this.timeOfDay = 0.0;
+  }
+
+  /** 시각 → 야간 강도(0..maxNight). 낮 46% · 밤 32% · 여명/황혼 22% */
+  nightFactor() {
     if (this.forceNight !== undefined) return this.forceNight;
-    const phase = ((w.city.tick % TICKS_PER_DAY) + (w.subTick || 0)) / TICKS_PER_DAY;
-    const light = 0.5 - 0.5 * Math.cos(2 * Math.PI * phase);
-    return clamp01(1 - light * 1.35);
+    if (this.dayNightMode === 'day') return 0;
+    if (this.dayNightMode === 'night') return this.maxNight;
+    const t = this.timeOfDay;
+    const K = NIGHT_CURVE;
+    for (let i = 1; i < K.length; i++) {
+      if (t <= K[i][0]) {
+        const a = K[i - 1], b = K[i];
+        const u = (t - a[0]) / (b[0] - a[0] || 1);
+        const e = u * u * (3 - 2 * u);              // smoothstep
+        return (a[1] + (b[1] - a[1]) * e) * this.maxNight;
+      }
+    }
+    return this.maxNight;
+  }
+
+  /** 상태 표시용 시각 문자열 */
+  clockLabel() {
+    if (this.dayNightMode === 'day') return '☀️ 낮 고정';
+    if (this.dayNightMode === 'night') return '🌙 밤 고정';
+    const h = Math.floor(this.timeOfDay * 24), m = Math.floor((this.timeOfDay * 24 % 1) * 60);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
   // =========================================================================
@@ -90,7 +132,7 @@ export class Renderer {
     const ctx = this.ctx, cam = this.cam;
     this.frame++;
     redrawGround(w, this.ground);
-    const night = this.nightFactor(w);
+    const night = this.nightFactor();
     this.lightQueue.length = 0;
     this.fxQueue.length = 0;
 
@@ -270,16 +312,20 @@ export class Renderer {
       let warn = null;
       if (!b.powered) warn = '⚡';
       else if (!b.watered) warn = '💧';
-      if (warn && (this.frame >> 5) % 2 === 0) {
+      if (warn) {
+        ctx.globalAlpha = 0.55 + 0.45 * Math.sin(this.frame * 0.055);
         ctx.font = `${Math.min(20, 10 * z + 5)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji"`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
         ctx.fillText(warn, mx, my - H - 4 * z);
+        ctx.globalAlpha = 1;
       }
     }
-    if (b.abandoned && (this.frame >> 6) % 2 === 0) {
+    if (b.abandoned) {
+      ctx.globalAlpha = 0.6 + 0.4 * Math.sin(this.frame * 0.04);
       ctx.font = `${Math.min(20, 10 * z + 5)}px system-ui, "Apple Color Emoji", "Segoe UI Emoji"`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
       ctx.fillText('🏚️', mx, my - H - 4 * z);
+      ctx.globalAlpha = 1;
     }
   }
 

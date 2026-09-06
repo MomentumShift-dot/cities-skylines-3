@@ -32,9 +32,9 @@ export function runSelfTest(game) {
   const cx = Math.floor(MAP_W / 2);
 
   // --- UI 구성 -------------------------------------------------------------
-  t('툴바 버튼이 생성된다', () => document.querySelectorAll('#toolbar .tool').length >= 12);
+  t('툴바 버튼이 생성된다', () => document.querySelectorAll('#toolbar .tool').length === 14);
   t('오버레이 버튼이 생성된다', () => document.querySelectorAll('#overlayBar .ov-btn').length >= 15);
-  t('상단 메뉴 버튼이 생성된다', () => document.querySelectorAll('.tb-menu button').length === 7);
+  t('상단 메뉴 버튼이 생성된다', () => document.querySelectorAll('.tb-menu button').length === 8);
 
   // --- 도로 팔레트 & 건설 ---------------------------------------------------
   t('도로 팔레트가 열린다', () => {
@@ -80,6 +80,54 @@ export function runSelfTest(game) {
     for (let i = 0; i < w.N; i++) if (w.zone[i]) n++;
     note(`${n}칸 지정됨`);
     return n > 100;
+  });
+
+  t('모든 툴바 탭의 팔레트가 전체 항목을 보여준다', () => {
+    const expect = { road: ROADS.length + 1, zone: 8, power: 6, water: 4, garbage: 3,
+                     service: 8, edu: 4, park: 5, transp: 4, admin: 4, unique: 4 };
+    const bad = [];
+    for (const [id, n] of Object.entries(expect)) {
+      game.ui.selectGroup(id);
+      const items = document.querySelectorAll('#palette .pal-item').length;
+      if (items !== n) bad.push(`${id} ${items}/${n}`);
+    }
+    game.ui.closePalette();
+    note(bad.length ? '불일치 → ' + bad.join(', ') : `${Object.keys(expect).length}개 탭 정상`);
+    return bad.length === 0;
+  });
+
+  t('교육 탭에 학교가 모두 들어 있다', () => {
+    game.ui.selectGroup('edu');
+    const names = [...document.querySelectorAll('#palette .pi-name')].map(e => e.textContent);
+    game.ui.closePalette();
+    note(names.join(', '));
+    return ['초등학교', '고등학교', '대학교', '도서관'].every(n => names.includes(n));
+  });
+
+  t('낮/밤 주기가 시뮬레이션 속도와 분리되어 있다', () => {
+    const r = game.renderer;
+    r.dayNightMode = 'auto'; r.forceNight = undefined;
+    // 주기 전체에서 「초당 최대 변화량」을 구한다 (예전 방식은 초당 2 이상이었다)
+    let maxPerSec = 0, mn = 1, mx = 0;
+    const step = 1 / r.dayLength;                   // 1초에 해당하는 시각 증가분
+    for (let i = 0; i < 600; i++) {
+      r.timeOfDay = i / 600;      const a = r.nightFactor();
+      r.timeOfDay = (i / 600 + step) % 1; const b = r.nightFactor();
+      maxPerSec = Math.max(maxPerSec, Math.abs(b - a));
+      mn = Math.min(mn, a); mx = Math.max(mx, a);
+    }
+    r.timeOfDay = 0.42;
+    note(`초당 최대 변화 ${maxPerSec.toFixed(4)} · 범위 ${mn.toFixed(2)}~${mx.toFixed(2)} · 주기 ${r.dayLength}초`);
+    return maxPerSec < 0.05 && mn < 0.01 && mx > 0.5 && r.dayLength >= 120;
+  });
+
+  t('낮/밤 고정 모드가 동작한다', () => {
+    const r = game.renderer;
+    r.setDayNightMode('day');   const d = r.nightFactor();
+    r.setDayNightMode('night'); const n = r.nightFactor();
+    r.setDayNightMode('auto');
+    note(`낮 ${d.toFixed(2)} · 밤 ${n.toFixed(2)}`);
+    return d === 0 && n > 0.5;
   });
 
   // --- 서비스 건물 ---------------------------------------------------------

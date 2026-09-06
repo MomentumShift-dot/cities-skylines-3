@@ -44,6 +44,8 @@ class Game {
     this.input = new Input(this);
     window.addEventListener('resize', () => this.renderer.resize());
 
+    const dn = localStorage.getItem('cs3_daynight');
+    if (dn) this.renderer.dayNightMode = dn;
     this.renderer.cam.centerOn(MAP_W / 2 - 18, this.world.outside.y);
     this.renderer.cam.zoom = parseFloat(q.get('zoom')) || 1.0;
 
@@ -61,6 +63,7 @@ class Game {
         markAllDirty(this.world);
         this.renderer.cam.centerOn(MAP_W / 2, this.world.outside.y);
         this.renderer.cam.zoom = parseFloat(q.get('zoom')) || 0.62;
+        if (q.has('tab')) this.ui.selectGroup(q.get('tab'));
         this.ui.update(true); this.ui.updateMinimap();
       });
       if (q.has('overlay')) {
@@ -121,6 +124,7 @@ class Game {
     }
 
     this.input.updateCameraKeys(dt);
+    this.renderer.advanceClock(dt);
     this.renderer.showGrid = this.showGrid;
     this.renderer.render(w, {
       hover: this.hover, tool: this.tool.type, preview: this.preview,
@@ -146,6 +150,15 @@ class Game {
 
   // -------------------------------------------------------------------------
   setSpeed(n) { this.speed = n; this.ui.update(true); }
+
+  /** 낮 고정 → 밤 고정 → 자동 순환 */
+  cycleDayNight() {
+    const order = ['auto', 'day', 'night'];
+    const next = order[(order.indexOf(this.renderer.dayNightMode) + 1) % order.length];
+    this.renderer.setDayNightMode(next);
+    localStorage.setItem('cs3_daynight', next);
+    this.ui.update(true);
+  }
 
   setTool(t) {
     this.tool = t;

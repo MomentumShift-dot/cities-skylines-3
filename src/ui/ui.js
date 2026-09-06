@@ -29,7 +29,8 @@ const TOOL_GROUPS = [
   { id: 'power',   name: '전력',      icon: '⚡', kind: 'build', cats: ['power'] },
   { id: 'water',   name: '상하수도',  icon: '💧', kind: 'build', cats: ['water'] },
   { id: 'garbage', name: '폐기물',    icon: '🗑️', kind: 'build', cats: ['garbage'] },
-  { id: 'service', name: '공공서비스', icon: '🏥', kind: 'build', cats: ['health', 'fire', 'police', 'edu'] },
+  { id: 'service', name: '공공서비스', icon: '🏥', kind: 'build', cats: ['health', 'fire', 'police'] },
+  { id: 'edu',     name: '교육',      icon: '🎓', kind: 'build', cats: ['edu'] },
   { id: 'park',    name: '공원',      icon: '🌳', kind: 'build', cats: ['park'] },
   { id: 'transp',  name: '교통',      icon: '🚌', kind: 'build', cats: ['transport'] },
   { id: 'admin',   name: '통신·행정', icon: '🏛️', kind: 'build', cats: ['comm', 'gov'] },
@@ -98,6 +99,12 @@ export class UI {
     const right = document.querySelector('.tb-right');
     const box = el('div', 'tb-menu');
     box.style.cssText = 'display:flex;gap:3px';
+    const dn = el('button', 'spd', '🌗');
+    dn.id = 'btnDayNight';
+    dn.style.cssText = 'font-size:14px;padding:5px 8px';
+    dn.title = '낮/밤 전환 (자동 · 낮 고정 · 밤 고정)';
+    dn.onclick = () => this.g.cycleDayNight();
+    box.appendChild(dn);
     for (const m of MENUS) {
       const b = el('button', 'spd', m.icon);
       b.style.cssText = 'font-size:14px;padding:5px 8px';
@@ -255,7 +262,13 @@ export class UI {
     setStat('#stat-water', Math.round(Math.min(wr, 9.9) * 100) + '%',
             `${c.water.demand.toFixed(1)}`, wr < 1);
 
-    $('#dateLabel').textContent = `${c.year}년 ${c.month}월 ${c.day}일`;
+    $('#dateLabel').textContent = `${c.year}년 ${c.month}월 ${c.day}일 · ${g.renderer.clockLabel()}`;
+    const dnBtn = document.getElementById('btnDayNight');
+    if (dnBtn) {
+      const m = g.renderer.dayNightMode;
+      dnBtn.textContent = m === 'day' ? '☀️' : m === 'night' ? '🌙' : '🌗';
+      dnBtn.classList.toggle('active', m !== 'auto');
+    }
     $('#cityName').textContent = c.name;
     $('#milestoneName').textContent = `${MILESTONES[c.milestone].name} · Lv.${c.milestone}`;
 
@@ -778,6 +791,7 @@ export class UI {
             <tr><td>도로 / 구역</td><td><kbd>Q</kbd> / <kbd>E</kbd></td></tr>
             <tr><td>브러시 크기</td><td><kbd>[</kbd> <kbd>]</kbd></td></tr>
             <tr><td>격자 표시</td><td><kbd>G</kbd></td></tr>
+            <tr><td>낮/밤 전환</td><td><kbd>N</kbd></td></tr>
             <tr><td>예산·통계·정책</td><td><kbd>B</kbd> <kbd>T</kbd> <kbd>P</kbd></td></tr>
           </table>
         </div>
