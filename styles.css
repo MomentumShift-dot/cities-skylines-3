@@ -64,18 +64,36 @@ button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
 .spd:hover{background:rgba(255,255,255,.13)}
 .spd.active{background:var(--accent);color:#06121c;border-color:var(--accent);font-weight:700}
 
-/* ---------- RCI ---------- */
-#rci{position:absolute;top:66px;right:12px;display:flex;gap:5px;padding:8px;border-radius:var(--r);
+/* ---------- RCI (밀도별 구역 수요) ---------- */
+#rci{position:absolute;top:66px;right:12px;display:flex;gap:9px;padding:9px 10px 6px;border-radius:var(--r);
   background:var(--panel);border:1px solid var(--line);z-index:15;box-shadow:var(--shadow)}
-.rci-bar{position:relative;width:22px;height:74px;background:rgba(255,255,255,.07);border-radius:5px;
-  display:flex;align-items:flex-end;overflow:hidden}
-.rci-bar span{position:absolute;bottom:2px;left:0;right:0;text-align:center;font-size:10px;font-weight:700;
-  color:rgba(255,255,255,.85);text-shadow:0 1px 2px #000;z-index:2}
-.rci-fill{width:100%;height:0%;transition:height .4s ease}
-.rci-bar[data-k=res] .rci-fill{background:var(--res)}
-.rci-bar[data-k=com] .rci-fill{background:var(--com)}
-.rci-bar[data-k=ind] .rci-fill{background:var(--ind)}
-.rci-bar[data-k=off] .rci-fill{background:var(--off)}
+.rci-group{display:flex;flex-direction:column;align-items:center;gap:4px}
+.rci-bars{display:flex;gap:3px}
+.rci-cap{font-size:9.5px;color:var(--txt-dim);letter-spacing:.4px}
+.rci-bar{position:relative;width:18px;height:72px;background:rgba(255,255,255,.07);border-radius:4px;
+  display:flex;align-items:flex-end;overflow:hidden;cursor:help}
+.rci-bar span{position:absolute;bottom:1px;left:0;right:0;text-align:center;font-size:9px;font-weight:700;
+  color:rgba(255,255,255,.9);text-shadow:0 1px 2px #000;z-index:2}
+.rci-fill{width:100%;height:0%;transition:height .5s ease;border-radius:0 0 4px 4px}
+.rci-bar.locked{opacity:.35}
+.rci-bar.locked span{color:rgba(255,255,255,.6)}
+.rci-group[data-g=res] .rci-fill{background:var(--res)}
+.rci-group[data-g=res] .rci-bar:nth-child(2) .rci-fill{background:#38ad4f}
+.rci-group[data-g=res] .rci-bar:nth-child(3) .rci-fill{background:#1f8f3d}
+.rci-group[data-g=com] .rci-fill{background:var(--com)}
+.rci-group[data-g=com] .rci-bar:nth-child(2) .rci-fill{background:#2f6fd0}
+.rci-group[data-g=ind] .rci-fill{background:var(--ind)}
+.rci-group[data-g=off] .rci-fill{background:var(--off)}
+
+/* ---------- 인프라 미니 게이지 ---------- */
+.infra{display:flex;gap:3px;align-items:center;padding:4px 7px;border-radius:8px;flex:0 0 auto;
+  background:rgba(255,255,255,.04);border:1px solid var(--line)}
+.mini{display:flex;flex-direction:column;align-items:center;gap:3px;width:32px;cursor:help}
+.mini .mi{font-size:13px;line-height:1.1}
+.mini .mb{width:24px;height:4px;border-radius:3px;background:rgba(255,255,255,.15);overflow:hidden}
+.mini .mb>div{height:100%;width:0;transition:width .4s ease,background .3s}
+.mini.crit .mi{animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
 
 /* ---------- 오버레이 선택 ---------- */
 #overlayBar{position:absolute;left:10px;top:70px;display:flex;flex-direction:column;gap:3px;z-index:15;
@@ -213,8 +231,9 @@ kbd{background:rgba(255,255,255,.12);border:1px solid var(--line-2);border-radiu
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:5px}
 ::-webkit-scrollbar-track{background:transparent}
 
-@media (max-width:1560px){ .brand-txt{display:none} }
-@media (max-width:1400px){ .stat .s-sub{display:none} }
+@media (max-width:1660px){ .brand-txt{display:none} }
+@media (max-width:1460px){ .stat .s-sub{display:none} }
+@media (max-width:1300px){ .tb-city{display:none} }
 @media (max-width:1320px){
   #toolbar{transform:translateX(-50%) scale(.92);transform-origin:bottom center}
 }

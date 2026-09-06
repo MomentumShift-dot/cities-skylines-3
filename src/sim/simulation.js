@@ -12,7 +12,8 @@ import { monthlyXp, checkMilestone } from './progression.js';
 import { eachBuilding } from '../core/world.js';
 
 const HIST_KEYS = ['population', 'happiness', 'cash', 'income', 'expense', 'unemployment',
-                   'traffic', 'demandRes', 'demandCom', 'demandInd', 'demandOff', 'crime', 'health'];
+                   'traffic', 'demandRes', 'demandCom', 'demandInd', 'demandOff', 'crime', 'health',
+                   'demandResLow', 'demandResMed', 'demandResHigh'];
 
 export function initSim(w) {
   initCars(w);
@@ -72,6 +73,9 @@ function monthEnd(w) {
   push('demandCom', c.demand.com);
   push('demandInd', c.demand.ind);
   push('demandOff', c.demand.off);
+  push('demandResLow', c.demand.resLow);
+  push('demandResMed', c.demand.resMed);
+  push('demandResHigh', c.demand.resHigh);
   push('crime', c.crime);
   push('health', c.health);
 

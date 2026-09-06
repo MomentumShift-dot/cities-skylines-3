@@ -17,8 +17,10 @@ function report(label, w) {
               `(입주율 ${(c.population / Math.max(1, c.resCapacity) * 100).toFixed(0)}%)`);
   console.log(`만족도 ${c.happiness.toFixed(1)} · 건강 ${c.health} · 범죄 ${c.crime.toFixed(0)} ` +
               `· 실업률 ${c.unemployment.toFixed(1)}% · 교통 ${c.trafficFlow}%`);
-  console.log(`수요 R${c.demand.res.toFixed(0)} C${c.demand.com.toFixed(0)} ` +
-              `I${c.demand.ind.toFixed(0)} O${c.demand.off.toFixed(0)} · 마일스톤 ${c.milestone}`);
+  const dm = c.demand;
+  console.log(`수요 주거[저${dm.resLow.toFixed(0)} 중${dm.resMed.toFixed(0)} 고${dm.resHigh.toFixed(0)}] ` +
+              `상업[저${dm.comLow.toFixed(0)} 고${dm.comHigh.toFixed(0)}] ` +
+              `산업${dm.ind.toFixed(0)} 사무${dm.off.toFixed(0)} · 평균 토지가치 ${(c.avgLand||0).toFixed(0)} · 마일스톤 ${c.milestone}`);
   console.log(`건물 ${gr.length}동 ${JSON.stringify(cats)} · 레벨 ${JSON.stringify(lv)} ` +
               `· 폐허 ${gr.filter(b => b.abandoned).length}`);
   console.log(`월수지 ${Math.round(c.lastMonth.net || 0)} · 전력 ${c.power.supply.toFixed(0)}/${c.power.demand.toFixed(1)}` +

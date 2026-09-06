@@ -39,6 +39,28 @@ const TOOL_GROUPS = [
   { id: 'demolish',name: '철거',      icon: '💥', kind: 'bulldoze' },
 ];
 
+/** 밀도별 구역 수요 막대 구성 */
+const RCI_GROUPS = [
+  { g: 'res', cap: '주거', bars: [
+    { k: 'resLow',  label: '저', zone: 1 },
+    { k: 'resMed',  label: '중', zone: 2 },
+    { k: 'resHigh', label: '고', zone: 3 }] },
+  { g: 'com', cap: '상업', bars: [
+    { k: 'comLow',  label: '저', zone: 4 },
+    { k: 'comHigh', label: '고', zone: 5 }] },
+  { g: 'ind', cap: '산업', bars: [{ k: 'ind', label: '산', zone: 6 }] },
+  { g: 'off', cap: '사무', bars: [{ k: 'off', label: '사', zone: 7 }] },
+];
+
+/** 상단 인프라 미니 게이지 */
+const INFRA = [
+  { k: 'power',   icon: '⚡', name: '전력' },
+  { k: 'water',   icon: '💧', name: '상수도' },
+  { k: 'sewage',  icon: '🚽', name: '하수 처리' },
+  { k: 'garbage', icon: '🗑️', name: '쓰레기 처리' },
+  { k: 'traffic', icon: '🚗', name: '교통 흐름' },
+];
+
 const MENUS = [
   { id: 'budget', icon: '💵', name: '예산 (B)' },
   { id: 'stats',  icon: '📊', name: '통계 (T)' },
@@ -63,10 +85,91 @@ export class UI {
 
   // =========================================================================
   build() {
+    this.buildRci();
+    this.buildInfra();
     this.buildToolbar();
     this.buildOverlayBar();
     this.buildMenus();
     this.bindGlobal();
+  }
+
+  buildRci() {
+    const root = $('#rci');
+    root.innerHTML = '';
+    for (const grp of RCI_GROUPS) {
+      const g = el('div', 'rci-group');
+      g.dataset.g = grp.g;
+      const bars = el('div', 'rci-bars');
+      for (const b of grp.bars) {
+        const bar = el('div', 'rci-bar', `<div class="rci-fill"></div><span>${b.label}</span>`);
+        bar.dataset.k = b.k;
+        bar.dataset.zone = b.zone;
+        bars.appendChild(bar);
+      }
+      g.appendChild(bars);
+      g.appendChild(el('div', 'rci-cap', grp.cap));
+      root.appendChild(g);
+    }
+  }
+
+  buildInfra() {
+    const root = $('#infra');
+    if (!root) return;
+    root.innerHTML = '';
+    for (const m of INFRA) {
+      const e = el('div', 'mini', `<span class="mi">${m.icon}</span><span class="mb"><div></div></span>`);
+      e.dataset.k = m.k;
+      root.appendChild(e);
+    }
+  }
+
+  updateRci() {
+    const w = this.g.world, c = w.city;
+    document.querySelectorAll('.rci-bar').forEach(bar => {
+      const k = bar.dataset.k, zone = +bar.dataset.zone;
+      const zd = ZONE_DEF[zone];
+      const locked = c.milestone < (zd.unlock || 0);
+      const v = locked ? 0 : clamp(c.demand[k] || 0, 0, 100);
+      bar.querySelector('.rci-fill').style.height = v + '%';
+      bar.classList.toggle('locked', locked);
+      const cap = (c.zoneCap && c.zoneCap[zone]) || 0;
+      const occ = (c.zoneOcc && c.zoneOcc[zone]) || 0;
+      bar.dataset.tip = locked
+        ? `<b>${zd.name}</b><br>🔒 마일스톤 「${MILESTONES[zd.unlock].name}」에서 해금`
+        : `<b>${zd.name}</b><br>수요 ${Math.round(v)} / 100<br>` +
+          `${zd.cat === 'res' ? '거주' : '고용'} ${fmtInt(occ)} / ${fmtInt(cap)}` +
+          (cap > 0 ? ` (공실 ${Math.round((1 - occ / cap) * 100)}%)` : '') +
+          `<br>${v > 60 ? '수요가 높습니다 — 구역을 더 지정하세요' :
+                v > 25 ? '완만한 수요' : '수요가 거의 없습니다'}`;
+    });
+  }
+
+  updateInfra() {
+    const c = this.g.world.city;
+    const vals = {
+      power:   { r: c.power.demand > 0 ? c.power.ratio : 1,
+                 tip: `공급 ${c.power.supply.toFixed(1)} / 수요 ${c.power.demand.toFixed(1)} MW` },
+      water:   { r: c.water.demand > 0 ? c.water.ratio : 1,
+                 tip: `공급 ${c.water.supply.toFixed(1)} / 수요 ${c.water.demand.toFixed(1)}` },
+      sewage:  { r: c.sewage.produced > 0 ? c.sewage.ratio : 1,
+                 tip: `처리 용량 ${c.sewage.capacity.toFixed(1)} / 발생 ${c.sewage.produced.toFixed(1)}` },
+      garbage: { r: Math.min(c.garbage.produced > 0 ? c.garbage.ratio : 1, 1 - (c.garbage.full || 0)),
+                 tip: `처리 ${c.garbage.capacity.toFixed(0)} / 발생 ${c.garbage.produced.toFixed(1)}` +
+                      `<br>매립 적재율 ${Math.round((c.garbage.full || 0) * 100)}%` },
+      traffic: { r: (c.trafficFlow || 100) / 100,
+                 tip: `교통 흐름 ${c.trafficFlow}%<br>대중교통 분담률 ${Math.round((c.transitShare || 0) * 100)}%` },
+    };
+    document.querySelectorAll('#infra .mini').forEach(e => {
+      const k = e.dataset.k, v = vals[k];
+      if (!v) return;
+      const r = clamp01(v.r);
+      const bar = e.querySelector('.mb > div');
+      bar.style.width = (r * 100).toFixed(0) + '%';
+      bar.style.background = r >= 0.98 ? '#5fd68a' : r >= 0.75 ? '#f5c04a' : '#ff6a5c';
+      e.classList.toggle('crit', r < 0.75);
+      const info = INFRA.find(x => x.k === k);
+      e.dataset.tip = `<b>${info.name}</b> ${Math.round(r * 100)}%<br>${v.tip}`;
+    });
   }
 
   buildToolbar() {
@@ -254,13 +357,7 @@ export class UI {
     setStat('#stat-pop', fmtInt(c.population), '/' + fmtShort(c.resCapacity || 0));
     setStat('#stat-happy', Math.round(c.happiness), happyFace(c.happiness), c.happiness < 40);
     setStat('#stat-jobs', c.unemployment.toFixed(0) + '%', '실업', c.unemployment > 20);
-    setStat('#stat-traffic', c.trafficFlow + '%', '흐름', c.trafficFlow < 60);
-    const pr = c.power.demand > 0 ? c.power.ratio : 1;
-    setStat('#stat-power', Math.round(Math.min(pr, 9.9) * 100) + '%',
-            `${c.power.demand.toFixed(1)}MW`, pr < 1);
-    const wr = c.water.demand > 0 ? c.water.ratio : 1;
-    setStat('#stat-water', Math.round(Math.min(wr, 9.9) * 100) + '%',
-            `${c.water.demand.toFixed(1)}`, wr < 1);
+    this.updateInfra();
 
     $('#dateLabel').textContent = `${c.year}년 ${c.month}월 ${c.day}일 · ${g.renderer.clockLabel()}`;
     const dnBtn = document.getElementById('btnDayNight');
@@ -279,11 +376,7 @@ export class UI {
     $('#dpLabel').textContent = '🔬 ' + c.devPoints;
     $('#permitLabel').textContent = '🗺️ ' + c.permits;
 
-    // RCI
-    document.querySelectorAll('.rci-bar').forEach(b => {
-      const v = c.demand[b.dataset.k] || 0;
-      b.querySelector('.rci-fill').style.height = clamp(v, 0, 100) + '%';
-    });
+    this.updateRci();
 
     // 속도 버튼
     document.querySelectorAll('.spd[data-speed]').forEach(b => {
@@ -606,7 +699,11 @@ export class UI {
       card('실업률', c.unemployment.toFixed(1) + '%', `일자리 ${fmtInt(c.jobsFilled)}/${fmtInt(c.jobs)}`) +
       card('교통 흐름', c.trafficFlow + '%', `대중교통 분담 ${Math.round((c.transitShare || 0) * 100)}%`) +
       card('건강', c.health, `범죄 지수 ${Math.round(c.crime)}`) +
-      card('관광객', fmtInt(c.tourists), '월 방문');
+      card('관광객', fmtInt(c.tourists), '월 방문') +
+      card('주거 수요', `저${Math.round(c.demand.resLow)} 중${Math.round(c.demand.resMed)} 고${Math.round(c.demand.resHigh)}`,
+           `평균 토지가치 ${Math.round(c.avgLand || 0)}`) +
+      card('상업·산업·사무', `저${Math.round(c.demand.comLow)} 고${Math.round(c.demand.comHigh)} · 산${Math.round(c.demand.ind)} · 사${Math.round(c.demand.off)}`,
+           '구역 수요');
     root.appendChild(kpi);
 
     const mkChart = (title, series, colors, labels, maxHint) => {
@@ -622,9 +719,12 @@ export class UI {
     mkChart('재정 (월)', [h.income || [], h.expense || []], ['#5fd68a', '#ff6a5c'], ['수입', '지출']);
     mkChart('만족도 · 교통 · 실업률', [h.happiness || [], h.traffic || [], h.unemployment || []],
       ['#ffd452', '#49b8ff', '#ff8a5c'], ['만족도', '교통 흐름', '실업률'], 100);
-    mkChart('구역 수요 (RCI-O)',
-      [h.demandRes || [], h.demandCom || [], h.demandInd || [], h.demandOff || []],
-      ['#4ec863', '#57a6f5', '#e6a92c', '#8a6ae8'], ['주거', '상업', '산업', '사무'], 100);
+    mkChart('주거 수요 (밀도별)',
+      [h.demandResLow || [], h.demandResMed || [], h.demandResHigh || []],
+      ['#4ec863', '#38ad4f', '#1f8f3d'], ['저밀도', '중밀도', '고밀도'], 100);
+    mkChart('상업·산업·사무 수요',
+      [h.demandCom || [], h.demandInd || [], h.demandOff || []],
+      ['#57a6f5', '#e6a92c', '#8a6ae8'], ['상업', '산업', '사무'], 100);
 
     const demo = el('div');
     const ag = c.ageGroups, ed = c.education;

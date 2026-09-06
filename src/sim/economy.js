@@ -359,61 +359,103 @@ function avgField(w, key) {
 export function updateDemand(w) {
   const c = w.city, pol = c.policies;
   const d = c.demand;
+  const ms = c.milestone;
 
-  const jobSurplus = c.jobs - c.jobsFilled;                    // 남는 일자리
-  const housingSlack = c.resCapacity - c.population;           // 남는 주거 공간
-  // 실업률이 목표(6%)보다 높으면 일자리 수요가, 낮으면 주거 수요가 커지는 자기조정 항
-  const labor = clamp((c.unemployment - 6) * 2.0, -22, 34);
-
-  // 주거: 일자리가 많고 세금이 낮고 살기 좋으면 상승
-  let res = 42
-    + clamp(jobSurplus * 0.10, -35, 35)
-    + (c.happiness - 50) * 0.55
-    - (c.tax.res - 11) * 2.4
-    - clamp(housingSlack * 0.045, 0, 26)
-    - clamp(labor * 0.55, -6, 20)
-    + (pol.highrent ? 8 : 0);
-  if (c.population < 60) res = Math.max(res, 70);
-
-  // 상업: 인구(소비) 대비 상업 일자리 + 노동시장 상황
-  const comCap = capOf(w, 'com');
-  let com = 18 + clamp(c.population * 0.055 - comCap * 0.45, -35, 40)
-    + labor
-    - (c.tax.com - 11) * 2.0
-    + (c.tourists * 0.02)
-    + (pol.smallbiz ? 10 : 0);
-
-  // 산업: 상업 물량 공급 + 수출 + 노동시장 상황
-  const indCap = capOf(w, 'ind');
-  let ind = 18 + clamp(comCap * 0.30 + c.population * 0.030 - indCap * 0.45, -35, 40)
-    + labor
-    - (c.tax.ind - 11) * 1.9
-    + (pol.greenind ? -14 : 0);
-
-  // 사무: 고학력 인력 잉여
-  const offCap = capOf(w, 'off');
-  const highEd = c.education.high;
-  let off = (c.milestone >= 12 ? 10 : -100)
-    + clamp(highEd * 0.50 - offCap * 0.55, -35, 42)
-    + labor * 0.8
-    - (c.tax.off - 11) * 2.0
-    + (pol.greenind ? 16 : 0);
-
-  // 미개발 구역이 이미 많으면 수요 억제
-  d.res = approach(d.res, clamp(res, 0, 100), 0.25);
-  d.com = approach(d.com, clamp(com, 0, 100), 0.25);
-  d.ind = approach(d.ind, clamp(ind, 0, 100), 0.25);
-  d.off = approach(d.off, clamp(off, 0, 100), 0.25);
-}
-
-function capOf(w, cat) {
-  let s = 0;
+  // --- 용도지역별 수용량/입주량 집계 ------------------------------------------
+  const cap = {}, occ = {};
+  let landSum = 0, landN = 0;
   eachBuilding(w, b => {
     if (b.kind !== 'growth' || b.abandoned) return;
     const zd = ZONE_DEF[b.zone];
-    if (zd.cat === cat) s += zd.cap[b.level - 1];
+    cap[b.zone] = (cap[b.zone] || 0) + zd.cap[b.level - 1];
+    occ[b.zone] = (occ[b.zone] || 0) + (zd.cat === 'res' ? b.residents : b.filled);
+    landSum += sampleField(w, w.f.land, b); landN++;
   });
-  return s;
+  const land = landN ? landSum / landN : 38;
+  c.avgLand = land;
+  c.zoneCap = cap; c.zoneOcc = occ;
+
+  /** 공실률 0..1 — 밀도가 달라도 같은 척도로 비교된다 */
+  const vac = z => {
+    const cp = cap[z] || 0;
+    return cp > 0 ? clamp01(1 - (occ[z] || 0) / cp) : 0;
+  };
+
+  const jobSurplus = c.jobs - c.jobsFilled;
+  const labor = clamp((c.unemployment - 6) * 2.0, -22, 34);   // 실업률 자기조정 항
+  const urban = clamp01(c.population / 9000);                 // 도시화 정도
+
+  // --- 주거: 공통 압력 + 밀도별 선호 ------------------------------------------
+  const resBase = 42
+    + clamp(jobSurplus * 0.10, -35, 35)
+    + (c.happiness - 50) * 0.55
+    - (c.tax.res - 11) * 2.4
+    - clamp(labor * 0.55, -6, 20)
+    + (pol.highrent ? 8 : 0);
+
+  // 도시가 작고 땅값이 쌀수록 단독주택을, 커지고 땅값이 오를수록 고층을 원한다
+  const prefLow  = 20 - urban * 32 - (land - 45) * 0.20;
+  const prefMed  = 2 + urban * 12 - Math.abs(land - 52) * 0.14;
+  const prefHigh = -26 + urban * 42 + (land - 45) * 0.44;
+
+  const rawLow  = resBase + prefLow  - vac(1) * 60;
+  const rawMed  = ms >= ZONE_DEF[2].unlock ? resBase + prefMed  - vac(2) * 60 : -100;
+  const rawHigh = ms >= ZONE_DEF[3].unlock ? resBase + prefHigh - vac(3) * 60 : -100;
+
+  // --- 상업: 저밀도(동네 상권) vs 고밀도(대형 점포) ------------------------------
+  const comCap = (cap[4] || 0) + (cap[5] || 0);
+  const comBase = 18
+    + clamp(c.population * 0.055 - comCap * 0.45, -35, 40)
+    + labor
+    - (c.tax.com - 11) * 2.0
+    + c.tourists * 0.02;
+  const rawComLow  = comBase + 12 - urban * 22 + (pol.smallbiz ? 14 : 0) - vac(4) * 55;
+  const rawComHigh = ms >= ZONE_DEF[5].unlock
+    ? comBase - 12 + urban * 28 + (land - 45) * 0.30 - vac(5) * 55 : -100;
+
+  // --- 산업 / 사무 -------------------------------------------------------------
+  const indCap = cap[6] || 0, offCap = cap[7] || 0;
+  const rawInd = 18
+    + clamp(comCap * 0.30 + c.population * 0.030 - indCap * 0.45, -35, 40)
+    + labor
+    - (c.tax.ind - 11) * 1.9
+    + (pol.greenind ? -14 : 0)
+    - vac(6) * 45;
+  const rawOff = ms >= ZONE_DEF[7].unlock
+    ? 10 + clamp(c.education.high * 0.50 - offCap * 0.55, -35, 42)
+      + labor * 0.8 - (c.tax.off - 11) * 2.0 + (pol.greenind ? 16 : 0) - vac(7) * 45
+    : -100;
+
+  // 초기 정착지는 최소한의 주거 수요를 보장한다
+  const bootstrap = c.population < 60;
+
+  const set = (k, v) => { d[k] = approach(d[k] ?? 0, clamp(v, 0, 100), 0.25); };
+  set('resLow',  bootstrap ? Math.max(rawLow, 70) : rawLow);
+  set('resMed',  rawMed);
+  set('resHigh', rawHigh);
+  set('comLow',  rawComLow);
+  set('comHigh', rawComHigh);
+  set('ind',     rawInd);
+  set('off',     rawOff);
+
+  // 요약값 (통계 그래프·툴팁용)
+  d.res = Math.max(d.resLow, d.resMed, d.resHigh);
+  d.com = Math.max(d.comLow, d.comHigh);
+}
+
+/** 용도지역 id → 해당 구역의 현재 수요 */
+export function demandOfZone(city, zone) {
+  const d = city.demand;
+  switch (zone) {
+    case 1: return d.resLow;
+    case 2: return d.resMed;
+    case 3: return d.resHigh;
+    case 4: return d.comLow;
+    case 5: return d.comHigh;
+    case 6: return d.ind;
+    case 7: return d.off;
+    default: return 0;
+  }
 }
 
 // ---------------------------------------------------------------------------

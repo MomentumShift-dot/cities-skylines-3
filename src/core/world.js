@@ -114,7 +114,11 @@ export function newCityState() {
     sewage: { capacity: 0, produced: 0, ratio: 1 },
     garbage: { capacity: 0, produced: 0, stored: 0, storage: 0, ratio: 1 },
 
-    demand: { res: 60, com: 40, ind: 45, off: 10 },
+    demand: {
+      resLow: 70, resMed: 0, resHigh: 0, comLow: 40, comHigh: 0, ind: 45, off: 0,
+      res: 70, com: 40,
+    },
+    avgLand: 38,
     income: 0, expense: 0,
     lastMonth: { income: 0, expense: 0, detail: {} },
 

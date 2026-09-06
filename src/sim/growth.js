@@ -7,6 +7,7 @@ import {
   markGroundDirty, nearRoadTile,
 } from '../core/world.js';
 import { sampleField } from './fields.js';
+import { demandOfZone } from './economy.js';
 import { clamp, clamp01 } from '../core/utils.js';
 
 const CAT_OF_ZONE = [null, 'res', 'res', 'res', 'com', 'com', 'ind', 'off'];
@@ -47,10 +48,10 @@ export function growthTick(w, rng = w.rand || Math.random) {
   const d = c.demand;
   const tries = 90;
 
-  // 수요를 확률로 환산
+  // 밀도별 수요를 그대로 신축 확률로 쓴다 (저·중·고가 각각 독립적으로 성장)
   const wants = {
-    1: d.res * 0.010, 2: d.res * 0.009, 3: d.res * 0.009,
-    4: d.com * 0.011, 5: d.com * 0.009,
+    1: d.resLow * 0.010, 2: d.resMed * 0.009, 3: d.resHigh * 0.009,
+    4: d.comLow * 0.011, 5: d.comHigh * 0.009,
     6: d.ind * 0.011, 7: d.off * 0.010,
   };
 
@@ -107,7 +108,7 @@ export function growthTick(w, rng = w.rand || Math.random) {
     if (b.fire > 0) { updateFire(w, b); return; }
 
     const cap = zd.cap[b.level - 1];
-    const demand = cat === 'res' ? d.res : cat === 'com' ? d.com : cat === 'ind' ? d.ind : d.off;
+    const demand = demandOfZone(c, b.zone);
     // 입주율은 주로 「살기 좋은 정도」가 결정하고, 신축 여부는 수요가 통제한다.
     // (수요를 입주율에 직접 곱하면 도시 전체가 반쯤 빈 건물로 가득 차게 된다)
     const attract = clamp01(0.30 + b.happiness / 95) * clamp01(0.55 + demand / 90);

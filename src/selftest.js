@@ -104,6 +104,43 @@ export function runSelfTest(game) {
     return ['초등학교', '고등학교', '대학교', '도서관'].every(n => names.includes(n));
   });
 
+  t('구역 수요가 밀도별로 분리되어 있다', () => {
+    const d = w.city.demand;
+    const keys = ['resLow', 'resMed', 'resHigh', 'comLow', 'comHigh', 'ind', 'off'];
+    const missing = keys.filter(k => typeof d[k] !== 'number');
+    // 저·중·고가 서로 다른 값을 가질 수 있는지(동일 상수로 묶여 있지 않은지) 확인
+    w.city.milestone = 20;
+    w.city.zoneCap = { 1: 100, 2: 100, 3: 100 };
+    w.city.zoneOcc = { 1: 100, 2: 0, 3: 0 };     // 저밀도만 만실
+    for (let i = 0; i < 40; i++) step(w);
+    const distinct = new Set([Math.round(d.resLow), Math.round(d.resMed), Math.round(d.resHigh)]).size;
+    note(`저${d.resLow.toFixed(0)} 중${d.resMed.toFixed(0)} 고${d.resHigh.toFixed(0)} / ` +
+         `상저${d.comLow.toFixed(0)} 상고${d.comHigh.toFixed(0)} 산${d.ind.toFixed(0)} 사${d.off.toFixed(0)}`);
+    return missing.length === 0 && distinct >= 2;
+  });
+
+  t('RCI 막대가 7종(저·중·고 포함) 표시된다', () => {
+    const bars = [...document.querySelectorAll('#rci .rci-bar')].map(b => b.dataset.k);
+    const caps = [...document.querySelectorAll('#rci .rci-cap')].map(e => e.textContent);
+    note(bars.join(',') + ' / ' + caps.join(','));
+    return bars.length === 7 &&
+           ['resLow', 'resMed', 'resHigh', 'comLow', 'comHigh', 'ind', 'off'].every(k => bars.includes(k)) &&
+           caps.join() === '주거,상업,산업,사무';
+  });
+
+  t('상단바가 잘리지 않는다 (인프라 게이지 포함)', () => {
+    const bar = document.getElementById('topbar');
+    const stats = document.querySelector('.tb-stats');
+    const infra = document.getElementById('infra');
+    const minis = infra ? infra.querySelectorAll('.mini').length : 0;
+    // 마지막 요소의 오른쪽 끝이 컨테이너 안에 들어오는지
+    const last = infra ? infra.getBoundingClientRect() : null;
+    const box = stats.getBoundingClientRect();
+    const overflow = stats.scrollWidth - stats.clientWidth;
+    note(`인프라 ${minis}개 · 스탯영역 넘침 ${overflow}px · 창 ${window.innerWidth}px`);
+    return minis === 5 && overflow <= 0 && last && last.right <= box.right + 1;
+  });
+
   t('낮/밤 주기가 시뮬레이션 속도와 분리되어 있다', () => {
     const r = game.renderer;
     r.dayNightMode = 'auto'; r.forceNight = undefined;
