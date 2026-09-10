@@ -44,7 +44,7 @@ class Game {
     this.input = new Input(this);
     window.addEventListener('resize', () => this.renderer.resize());
 
-    const dn = localStorage.getItem('cs3_daynight');
+    const dn = Save.store.get('cs3_daynight');
     if (dn) this.renderer.dayNightMode = dn;
     this.renderer.cam.centerOn(MAP_W / 2 - 18, this.world.outside.y);
     this.renderer.cam.zoom = parseFloat(q.get('zoom')) || 1.0;
@@ -79,9 +79,13 @@ class Game {
 
     const auto = q.get('auto') === '0' ? null : Save.listSaves().find(s => s.key === AUTOSAVE_KEY);
     if (auto) {
-      if (confirm(`이전 도시 「${auto.name}」(인구 ${auto.pop})를 이어서 하시겠습니까?\n취소하면 새 도시를 시작합니다.`)) {
-        this.loadGame(AUTOSAVE_KEY);
-      } else this.welcome();
+      // 대화상자가 막힌 환경(샌드박스 등)에서는 이전 도시를 이어서 여는 쪽이 안전하다
+      let cont = true;
+      try {
+        cont = confirm(`이전 도시 「${auto.name}」(인구 ${auto.pop})를 이어서 하시겠습니까?\n취소하면 새 도시를 시작합니다.`);
+      } catch { cont = true; }
+      if (cont) this.loadGame(AUTOSAVE_KEY);
+      else this.welcome();
     } else this.welcome();
 
     if (q.has('overlay')) {
@@ -98,9 +102,9 @@ class Game {
   welcome() {
     pushNote(this.world, 'good', '🏙️ 새 도시에 오신 것을 환영합니다! 고속도로에서 도로를 연결해 시작하세요.');
     pushNote(this.world, 'good', '❓ 상단의 도움말 버튼(또는 H 키)에서 조작법과 공략을 확인할 수 있습니다.');
-    const seen = localStorage.getItem('cs3_seen_help');
+    const seen = Save.store.get('cs3_seen_help');
     if (!seen && !(this.q && this.q.has('nohelp'))) {
-      localStorage.setItem('cs3_seen_help', '1');
+      Save.store.set('cs3_seen_help', '1');
       setTimeout(() => this.ui.openModal('help'), 500);
     }
   }
@@ -156,7 +160,7 @@ class Game {
     const order = ['auto', 'day', 'night'];
     const next = order[(order.indexOf(this.renderer.dayNightMode) + 1) % order.length];
     this.renderer.setDayNightMode(next);
-    localStorage.setItem('cs3_daynight', next);
+    Save.store.set('cs3_daynight', next);
     this.ui.update(true);
   }
 
@@ -206,7 +210,16 @@ class Game {
   }
   listSaves() { return Save.listSaves(); }
   deleteSave(k) { Save.deleteSave(k); }
-  exportSave() { Save.exportFile(this.world); }
+  exportSave() { return Save.exportFile(this.world); }
+  saveText() { return Save.toText(this.world); }
+  storageOk() { return Save.store.ok; }
+  /** iframe 안에서 실행 중인가 (다운로드·파일선택이 막힌 환경) */
+  isEmbedded() { try { return window.top !== window.self; } catch { return true; } }
+  loadText(text) {
+    if (!text) return false;
+    try { this.adoptWorld(Save.fromText(text)); return true; }
+    catch (e) { this.toast('저장 데이터를 읽을 수 없습니다: ' + e.message, 'danger'); return false; }
+  }
   async importSave() {
     const w = await Save.importFile();
     if (w) this.adoptWorld(w);

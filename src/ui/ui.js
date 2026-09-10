@@ -842,14 +842,35 @@ export class UI {
 
   // --- 저장 ---------------------------------------------------------------
   mSave(root) {
+    const canStore = this.g.storageOk();
+    // 임베드(아티팩트·iframe) 환경은 파일 다운로드·선택이 막혀 있으므로 텍스트 방식만 제공한다
+    const embedded = this.g.isEmbedded();
     root.innerHTML = `<h2>💾 저장 / 불러오기</h2>
-      <div class="m-sub">브라우저 저장소에 도시를 보관하거나 파일로 내보낼 수 있습니다.</div>
+      <div class="m-sub">브라우저 저장소에 도시를 보관하거나, 파일·텍스트로 주고받을 수 있습니다.</div>
+      ${canStore ? '' : `<div class="chip bad" style="display:block;padding:8px 10px;margin-bottom:12px">
+        이 브라우저에서는 저장소를 사용할 수 없습니다(시크릿 창·사이트 데이터 차단 등).
+        아래 <b>텍스트로 백업</b>으로 도시를 보관하세요.</div>`}
+      ${embedded && canStore ? `<div class="chip" style="display:block;padding:8px 10px;margin-bottom:12px">
+        저장 슬롯은 이 브라우저에만 보관됩니다. 다른 기기로 옮기려면
+        <b>텍스트로 백업</b>한 뒤 붙여넣어 불러오세요.</div>` : ''}
       <div id="slotList"></div>
       <div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn primary" id="sv">현재 도시 저장</button>
-        <button class="btn" id="ex">파일로 내보내기</button>
-        <button class="btn" id="im">파일에서 불러오기</button>
+        ${embedded ? '' : `<button class="btn" id="ex">파일로 내보내기</button>
+        <button class="btn" id="im">파일에서 불러오기</button>`}
+        <button class="btn" id="tx">텍스트로 ${embedded ? '백업' : '내보내기'}</button>
+        <button class="btn" id="ti">텍스트로 불러오기</button>
         <button class="btn danger" id="nw">새 도시 시작</button>
+      </div>
+      <div id="textArea" class="hidden" style="margin-top:12px">
+        <div class="p-sec" id="textLabel"></div>
+        <textarea id="saveText" spellcheck="false" style="width:100%;height:110px;font-size:10px;
+          font-family:ui-monospace,monospace;background:rgba(0,0,0,.3);color:var(--txt-dim);
+          border:1px solid var(--line);border-radius:8px;padding:8px;resize:vertical"></textarea>
+        <div style="margin-top:8px;display:flex;gap:8px">
+          <button class="btn" id="txCopy">전체 복사</button>
+          <button class="btn primary hidden" id="txLoad">이 데이터로 불러오기</button>
+        </div>
       </div>`;
     const list = root.querySelector('#slotList');
     const slots = this.g.listSaves();
@@ -865,9 +886,36 @@ export class UI {
       it.appendChild(lb); it.appendChild(db);
       list.appendChild(it);
     }
+    const box = root.querySelector('#textArea');
+    const ta = root.querySelector('#saveText');
+    const showText = (label, value, loadable) => {
+      box.classList.remove('hidden');
+      root.querySelector('#textLabel').textContent = label;
+      ta.value = value;
+      root.querySelector('#txLoad').classList.toggle('hidden', !loadable);
+      root.querySelector('#txCopy').classList.toggle('hidden', loadable);
+      if (!loadable) { ta.focus(); ta.select(); }
+    };
     root.querySelector('#sv').onclick = () => { this.g.saveGame(); this.refreshModal(); };
-    root.querySelector('#ex').onclick = () => this.g.exportSave();
-    root.querySelector('#im').onclick = () => this.g.importSave();
+    if (!embedded) {
+      root.querySelector('#ex').onclick = () => {
+        if (!this.g.exportSave()) showText('다운로드가 막혀 있어 텍스트로 대신 내보냅니다 — 복사해서 보관하세요',
+                                           this.g.saveText(), false);
+      };
+      root.querySelector('#im').onclick = () => this.g.importSave();
+    }
+    root.querySelector('#tx').onclick = () =>
+      showText('아래 내용을 복사해 보관하세요', this.g.saveText(), false);
+    root.querySelector('#ti').onclick = () =>
+      showText('백업해 둔 저장 데이터를 붙여넣으세요', '', true);
+    root.querySelector('#txCopy').onclick = () => {
+      ta.focus(); ta.select();
+      try { navigator.clipboard.writeText(ta.value); } catch { document.execCommand('copy'); }
+      this.g.toast('📋 저장 데이터를 복사했습니다.', 'good');
+    };
+    root.querySelector('#txLoad').onclick = () => {
+      if (this.g.loadText(ta.value.trim())) this.closeModal();
+    };
     root.querySelector('#nw').onclick = () => {
       if (confirm('현재 진행 상황을 버리고 새 도시를 시작할까요?')) { this.g.newGame(); this.closeModal(); }
     };

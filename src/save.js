@@ -7,6 +7,24 @@ import { createWorld, newCityState } from './core/world.js';
 const PREFIX = 'cs3_save_';
 export const SAVE_VERSION = 3;
 
+/**
+ * localStorage 안전 래퍼.
+ * 시크릿 창·사이트 데이터 차단·샌드박스 등에서 접근 자체가 예외를 던질 수 있어
+ * 모든 읽기/쓰기를 try/catch 로 감싼다.
+ */
+export const store = {
+  ok: (() => {
+    try { const k = '__cs3'; localStorage.setItem(k, '1'); localStorage.removeItem(k); return true; }
+    catch { return false; }
+  })(),
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+  keys() {
+    try { return Object.keys(localStorage); } catch { return []; }
+  },
+};
+
 const TYPED = {
   height: Float32Array, water: Uint8Array, shore: Uint8Array, tree: Uint8Array,
   resource: Uint8Array, variant: Uint8Array, road: Uint8Array, zone: Uint8Array,
@@ -77,23 +95,21 @@ export function deserialize(data) {
 
 // ---------------------------------------------------------------------------
 export function saveTo(key, w) {
+  if (!store.ok) return { ok: false, msg: '이 브라우저에서는 저장소를 쓸 수 없습니다. 텍스트로 내보내기를 사용하세요.' };
   const payload = JSON.stringify(serialize(w));
-  try {
-    localStorage.setItem(PREFIX + key, payload);
-    localStorage.setItem(PREFIX + key + '_meta', JSON.stringify({
-      name: w.city.name,
-      pop: Math.round(w.city.population),
-      date: `${w.city.year}년 ${w.city.month}월`,
-      saved: new Date().toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }),
-    }));
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, msg: '저장 공간이 부족합니다: ' + e.message };
-  }
+  const meta = JSON.stringify({
+    name: w.city.name,
+    pop: Math.round(w.city.population),
+    date: `${w.city.year}년 ${w.city.month}월`,
+    saved: new Date().toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' }),
+  });
+  if (!store.set(PREFIX + key, payload)) return { ok: false, msg: '저장 공간이 부족합니다.' };
+  store.set(PREFIX + key + '_meta', meta);
+  return { ok: true };
 }
 
 export function loadFrom(key) {
-  const raw = localStorage.getItem(PREFIX + key);
+  const raw = store.get(PREFIX + key);
   if (!raw) return null;
   try { return deserialize(JSON.parse(raw)); }
   catch (e) { console.error('불러오기 실패', e); return null; }
@@ -101,12 +117,11 @@ export function loadFrom(key) {
 
 export function listSaves() {
   const out = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
+  for (const k of store.keys()) {
     if (!k.startsWith(PREFIX) || k.endsWith('_meta')) continue;
     const key = k.slice(PREFIX.length);
     let meta = {};
-    try { meta = JSON.parse(localStorage.getItem(k + '_meta') || '{}'); } catch {}
+    try { meta = JSON.parse(store.get(k + '_meta') || '{}'); } catch {}
     out.push({ key, name: meta.name || key, pop: meta.pop || 0,
                date: meta.date || '-', saved: meta.saved || '-' });
   }
@@ -114,17 +129,24 @@ export function listSaves() {
 }
 
 export function deleteSave(key) {
-  localStorage.removeItem(PREFIX + key);
-  localStorage.removeItem(PREFIX + key + '_meta');
+  store.del(PREFIX + key);
+  store.del(PREFIX + key + '_meta');
 }
 
+/** 저장 데이터를 텍스트로 (다운로드가 막힌 환경용) */
+export function toText(w) { return JSON.stringify(serialize(w)); }
+export function fromText(text) { return deserialize(JSON.parse(text)); }
+
 export function exportFile(w) {
-  const blob = new Blob([JSON.stringify(serialize(w))], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `${w.city.name.replace(/\s+/g, '_')}_${w.city.year}.cs3city.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  try {
+    const blob = new Blob([JSON.stringify(serialize(w))], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${w.city.name.replace(/\s+/g, '_')}_${w.city.year}.cs3city.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    return true;
+  } catch { return false; }
 }
 
 export function importFile() {

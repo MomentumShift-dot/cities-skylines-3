@@ -7,7 +7,9 @@
     "start": "node tools/serve.mjs",
     "check": "node --check src/main.js && find src tools -name '*.js' -o -name '*.mjs' | xargs -n1 node --check && echo OK",
     "test": "node tools/smoketest.mjs",
-    "balance": "node tools/balance.mjs"
+    "balance": "node tools/balance.mjs",
+    "bundle": "node tools/bundle.mjs",
+    "build": "node tools/bundle.mjs"
   },
   "license": "MIT"
 }

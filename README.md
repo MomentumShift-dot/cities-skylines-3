@@ -12,10 +12,22 @@
 
 ---
 
+## 바로 플레이
+
+| 방법 | 링크 / 명령 |
+|---|---|
+| **온라인** (설치 없이) | <https://claude.ai/code/artifact/54e312cb-078f-4692-90de-6fa4701726dc> |
+| **단독 파일** (오프라인) | `dist/cities-skylines-3.html` 을 브라우저로 열기 — 서버 불필요 |
+| **개발 서버** | `npm start` → <http://localhost:8123> |
+
+단독 파일은 `npm run bundle` 로 다시 만들 수 있습니다.
+ES 모듈 22개와 CSS를 하나의 HTML(약 330KB)로 묶으며, 외부 의존성이 전혀 없습니다.
+
 ## 실행
 
 ```bash
-npm start          # http://localhost:8123 접속
+npm start          # 개발 서버 (소스 그대로 로드)
+npm run bundle     # dist/ 단일 HTML 생성
 ```
 
 > 정적 파일 서버만 필요합니다. `python3 -m http.server 8123` 로 열어도 동일하게 동작합니다.
@@ -146,8 +158,11 @@ CS2와 같은 **20단계 마일스톤**(개척지 → 메갈로폴리스). 인�
 
 ## 저장
 
-브라우저 `localStorage` 저장 슬롯 + 2분마다 자동저장, JSON 파일로 내보내기/불러오기를 지원합니다.
-맵 격자는 Base64 인코딩된 TypedArray로 직렬화됩니다.
+브라우저 `localStorage` 저장 슬롯 + 2분마다 자동저장. 맵 격자는 Base64로 인코딩된
+TypedArray로 직렬화됩니다.
+- 데스크톱에서는 **JSON 파일**로 내보내기/불러오기
+- 다운로드가 막힌 임베드 환경(아티팩트 등)에서는 **텍스트 백업**(복사·붙여넣기)으로 대체됩니다
+- 저장소를 쓸 수 없는 환경(시크릿 창 등)에서도 게임은 정상 동작하며, 안내가 표시됩니다
 
 ---
 
@@ -185,6 +200,7 @@ src/
     input.js          마우스/키보드, 도구 적용, 프리뷰
 tools/
   serve.mjs           의존성 없는 정적 서버
+  bundle.mjs          단일 HTML 번들러 (모듈을 IIFE로 감싸 이름 충돌 없이 결합)
   smoketest.mjs       Node 시뮬레이션 스모크 테스트
   balance.mjs         시나리오별 밸런스 리포트
 ```
