@@ -2,3 +2,4 @@ node_modules/
 *.log
 shot*.png
 dist/artifact.html
+submission/

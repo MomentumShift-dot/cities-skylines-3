@@ -14,11 +14,32 @@
 
 ## 바로 플레이
 
+### ▶ <https://momentumshift-dot.github.io/cities-skylines-3/>
+
+설치도 로그인도 없습니다. 링크를 열면 바로 시작합니다.
+자라 있는 도시부터 보려면 [`?demo=12`](https://momentumshift-dot.github.io/cities-skylines-3/?demo=12) 를 붙이세요.
+
 | 방법 | 링크 / 명령 |
 |---|---|
-| **온라인** (설치 없이) | <https://claude.ai/code/artifact/54e312cb-078f-4692-90de-6fa4701726dc> |
+| **온라인** (설치 없이) | <https://momentumshift-dot.github.io/cities-skylines-3/> |
 | **단독 파일** (오프라인) | `dist/cities-skylines-3.html` 을 브라우저로 열기 — 서버 불필요 |
 | **개발 서버** | `npm start` → <http://localhost:8123> |
+
+---
+
+## 🏫 중학교 수업 자료
+
+중학교 역사 교사로부터 *"도시의 성장과 발전, 인프라가 도시 발전에 미치는 요소를
+교육 과제로 활용할 가치가 있다"* 는 평가를 받아, 수업에 바로 쓸 수 있는 자료를 만들었습니다.
+
+- **[교사용 지도안 PDF](classroom/교사용_지도안.pdf)** — 2차시 수업안 + 학생 활동지 + 평가 루브릭
+- **[오프라인 교실용 패키지](classroom/CitiesSkylines3_교실용.zip)** — 인터넷이 차단된 컴퓨터실을 위한 단일 HTML + 실행 런처
+- 자세한 안내: **[classroom/](classroom/)**
+
+| | |
+|---|---|
+| 1차시 | **도시는 왜 그 자리에 생기는가** — 도시는 기반 시설이 닿는 곳까지만 자란다 |
+| 2차시 | **성장의 대가** — 도시 문제는 입지 선택의 결과이고, 되돌리는 데에는 대가가 따른다 |
 
 단독 파일은 `npm run bundle` 로 다시 만들 수 있습니다.
 ES 모듈 22개와 CSS를 하나의 HTML(약 330KB)로 묶으며, 외부 의존성이 전혀 없습니다.
